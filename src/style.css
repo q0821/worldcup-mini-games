@@ -323,28 +323,63 @@ body {
   font-size: 14px;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
-.pk-power {
+/* 力道條：游標來回擺動，黃色甜蜜區 */
+.pk-meter {
   position: absolute;
-  bottom: calc(56px + var(--safe-bottom));
+  bottom: calc(64px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
-  width: min(46%, 240px);
-  height: 10px;
+  width: min(74%, 340px);
+  height: 18px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.25);
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 0.15s;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  display: none;
 }
-.pk-power.show {
-  opacity: 1;
-}
-.pk-power i {
+.pk-meter.show {
   display: block;
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, #ffd33d, #ff7b35);
+}
+.pk-meter .zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(255, 211, 61, 0.55), rgba(255, 211, 61, 0.95), rgba(255, 211, 61, 0.55));
+  border-radius: 4px;
+}
+.pk-meter i {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 5px;
+  margin-left: -2.5px;
+  background: #fff;
+  border-radius: 3px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+}
+/* 撲球按鈕 */
+.pk-divebtn {
+  position: absolute;
+  bottom: calc(20px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 16px 46px;
+  font-size: 20px;
+  font-weight: 800;
+  border: none;
   border-radius: 999px;
+  background: #e74c3c;
+  color: #fff;
+  box-shadow: 0 5px 0 #93281c;
+  cursor: pointer;
+  display: none;
+  pointer-events: auto;
+}
+.pk-divebtn.show {
+  display: block;
+}
+.pk-divebtn:active {
+  transform: translateX(-50%) translateY(3px);
+  box-shadow: 0 2px 0 #93281c;
 }
 .pk-types {
   position: absolute;
