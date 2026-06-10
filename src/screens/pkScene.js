@@ -485,41 +485,88 @@ export function drawStriker(ctx, view, st, time) {
   ctx.restore()
 }
 
-// 玩家撲救手套（門將視角，從畫面下方撲向點擊位置）。dive: { t, sx, sy }
+// 玩家撲救（門將視角）：不畫手臂——兩隻手套自畫面左右下角快速飛入點擊處，
+// 命中紅圈時加拍擊衝擊波；點空則只有小波紋。dive: { t, sx, sy, hit }
 export function drawGloves(ctx, view, dive) {
-  const tt = 1 - Math.pow(1 - Math.min(1, dive.t), 2.2)
-  const target = { x: dive.sx, y: dive.sy }
-  const sx = view.W / 2
-  const sy = view.H * 1.08
-  const gx = sx + (target.x - sx) * tt
-  const gy = sy + (target.y - sy) * tt
-  const r = view.W * 0.055
-  const spread = r * 1.5
-  const ang = Math.atan2(target.y - sy, target.x - sx)
+  const { W, H } = view
+  const r = W * 0.052
+  // 飛入：前 0.35 個 t（約 0.1 秒）完成，easeOutCubic
+  const fly = Math.min(1, dive.t / 0.35)
+  const e = 1 - Math.pow(1 - fly, 3)
+  // 收尾淡出
+  const fade = dive.t > 1 ? Math.max(0, 1 - (dive.t - 1) / 0.4) : 1
+  if (fade <= 0) return
 
   ctx.save()
-  // 前臂
-  ctx.strokeStyle = '#1f8a8a'
-  ctx.lineWidth = r * 0.95
-  ctx.lineCap = 'round'
+  ctx.globalAlpha = fade
+
+  // 兩隻手套：左手自左下角、右手自右下角入鏡，併攏在點擊處兩側
   for (const side of [-1, 1]) {
-    ctx.beginPath()
-    ctx.moveTo(sx + side * spread * 1.4, view.H + r)
-    ctx.lineTo(gx + side * spread * Math.abs(Math.sin(ang)), gy + side * spread * 0.4 * Math.cos(ang))
-    ctx.stroke()
-  }
-  // 手套
-  for (const side of [-1, 1]) {
-    const hx = gx + side * spread * Math.abs(Math.sin(ang))
-    const hy = gy + side * spread * 0.4 * Math.cos(ang)
+    const fromX = side < 0 ? -r : W + r
+    const fromY = H + r * 1.5
+    const toX = dive.sx + side * r * 0.95
+    const toY = dive.sy + (side < 0 ? -r * 0.18 : r * 0.18) // 微錯位更自然
+    const hx = fromX + (toX - fromX) * e
+    const hy = fromY + (toY - fromY) * e
+    const rot = side * (0.5 - 0.5 * e) // 飛行中略斜，到位時擺正
+
+    ctx.save()
+    ctx.translate(hx, hy)
+    ctx.rotate(rot)
+    // 掌
     ctx.fillStyle = '#f4f4f4'
     ctx.beginPath()
-    ctx.arc(hx, hy, r, 0, Math.PI * 2)
+    ctx.ellipse(0, 0, r * 0.78, r, side * 0.25, 0, Math.PI * 2)
     ctx.fill()
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+    // 拇指
+    ctx.beginPath()
+    ctx.ellipse(side * r * 0.62, r * 0.3, r * 0.3, r * 0.42, side * 0.7, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)'
     ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.ellipse(0, 0, r * 0.78, r, side * 0.25, 0, Math.PI * 2)
     ctx.stroke()
+    // 掌心縫線
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(-r * 0.3, -r * 0.45)
+    ctx.lineTo(-r * 0.3, r * 0.45)
+    ctx.stroke()
+    ctx.restore()
   }
+
+  // 拍擊回饋：手套到位後（t > 0.3）從點擊處擴散
+  const tw = Math.max(0, dive.t - 0.3)
+  if (tw > 0) {
+    if (dive.hit) {
+      // 命中：雙層白色衝擊波
+      for (const [mul, lw, a0] of [
+        [4.2, 4, 0.85],
+        [2.6, 2, 0.55],
+      ]) {
+        const alpha = a0 * Math.max(0, 1 - tw / 0.8) * fade
+        if (alpha <= 0) continue
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`
+        ctx.lineWidth = lw
+        ctx.beginPath()
+        ctx.arc(dive.sx, dive.sy, r * (0.7 + tw * mul), 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    } else {
+      // 拍空：單層灰白小波紋
+      const alpha = 0.4 * Math.max(0, 1 - tw / 0.6) * fade
+      if (alpha > 0) {
+        ctx.strokeStyle = `rgba(220,220,220,${alpha})`
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(dive.sx, dive.sy, r * (0.5 + tw * 2.2), 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    }
+  }
+
   ctx.restore()
 }
 
