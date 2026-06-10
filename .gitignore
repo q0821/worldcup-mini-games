@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+
+# 測試 / 工具殘留
+.playwright-mcp/
+*.log
