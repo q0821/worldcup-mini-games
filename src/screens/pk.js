@@ -1,11 +1,14 @@
 // 模式三：PK 大賽（罰球對戰）。
 //
 // 射手回合（視角：球後方看球門）：
-//   1. 點九宮格選射門位置 → 2. 力道條來回擺動（甜蜜區小：過強射飛、過弱易被撲）
-//   → 3. 再點一下出腳。香蕉球：力道條速度不均、球速較慢、但弧線會騙過門將。
+//   1. 點球門選射門落點（準星）→ 2. 力道條來回擺動，再點一下出腳。
+//   力道條為連續力道：左段球慢易被撲 → 越右越強 → 完美區（黃）→ 過頭（紅）射飛。
+//   難度差異 = 完美區寬度。香蕉球：力道條速度不均、球速較慢、弧線誇張會騙過門將。
 // 門將回合（視角反轉：站在門裡看射手）：
-//   猜九宮格選撲救位置 → 射手助跑、明確出腳瞬間 → 按「撲球」抓時機。
-//   球的方向與速度每球不同，香蕉球弧線誇張、會中途換格。
+//   射手助跑、出腳瞬間球門上出現「紅圈」標示來球落點，
+//   必須在球到門前點到紅圈才算擋下（紅圈隨球接近縮小）。
+//   直球快（反應窗短）、香蕉球慢（窗長、但球先彎向別處再回來）。
+//   電腦球速隨機、也可能直接射飛。
 // 標準 5 球制 + 提前判定 + 驟死賽。物理採公尺制（重力 / Magnus）。
 
 import { t } from '../core/i18n.js'
@@ -22,13 +25,9 @@ import {
   renderBackground,
   drawGoalAndNet,
   drawKeeper,
-  zoneCenter,
-  zoneOf,
-  drawGridFwd,
   makeRevView,
   renderBackgroundRev,
   drawGoalFrameRev,
-  drawGridRev,
   drawStriker,
   drawGloves,
 } from './pkScene.js'
@@ -36,27 +35,31 @@ import {
 const G = 9.81
 const KEEPER_Z = 10.8
 const DIVE_DUR = 0.42
-const RUN_DUR = 0.8 // 射手助跑時長
-const AIM_WAIT = 1.6 // 門將回合：選格子時間
+const RUN_DUR = 0.8
+const AIM_WAIT = 1.2 // 門將回合：射手起跑前的等待
 
 const DIFFS = {
   easy: {
-    sweet: [0.56, 0.8], // 力道條甜蜜區
-    meterHz: 0.7, // 力道條來回頻率
-    cpuZoneRead: 0.42, // 電腦門將猜對格機率
-    cornerProb: 0.5, // 電腦射角落機率
+    sweet: [0.56, 0.84], // 完美力道區（寬）
+    meterHz: 0.7,
+    keeperSide: 0.48, // 電腦門將判對方向機率
+    keeperReach: 0.85,
     missChance: 0.16, // 電腦直接射偏機率
-    cpuSpeed: [13, 19], // 電腦球速（速度差大 → 時機難抓）
-    cpuBanana: 0.18,
+    cpuSpeed: [15, 21],
+    cpuBanana: 0.22,
+    cornerProb: 0.5,
+    circleR: 0.115, // 紅圈半徑（佔畫面寬比例）
   },
   hard: {
-    sweet: [0.62, 0.78],
+    sweet: [0.64, 0.76], // 完美力道區（窄）
     meterHz: 1.1,
-    cpuZoneRead: 0.66,
-    cornerProb: 0.85,
+    keeperSide: 0.7,
+    keeperReach: 1.0,
     missChance: 0.07,
-    cpuSpeed: [15, 23],
-    cpuBanana: 0.38,
+    cpuSpeed: [18, 25],
+    cpuBanana: 0.4,
+    cornerProb: 0.85,
+    circleR: 0.085,
   },
 }
 
@@ -95,7 +98,6 @@ export function createPkScreen() {
       <button data-type="straight" class="on">${t('pkStraight')}</button>
       <button data-type="banana">${t('pkBanana')}</button>
     </div>
-    <button class="pk-divebtn" id="divebtn">${t('pkDive')}</button>
   `
   el.appendChild(hud)
 
@@ -106,7 +108,6 @@ export function createPkScreen() {
   const sweetEl = $('sweet')
   const cursorEl = $('cursor')
   const typesEl = $('types')
-  const diveBtn = $('divebtn')
   const kickLabel = $('kicklabel')
 
   // ---------- 畫布 / 投影 ----------
@@ -114,8 +115,8 @@ export function createPkScreen() {
   let W = 0
   let H = 0
   let dpr = 1
-  let cam = null // 射手視角
-  let rev = null // 門將視角
+  let cam = null
+  let rev = null
   let bgFwd = null
   let bgRev = null
   let standsImg = null
@@ -125,7 +126,7 @@ export function createPkScreen() {
     last: 0,
     time: 0,
     diff: null,
-    phase: 'menu', // menu | zone | power | keepAim | runup | fly | between | end
+    phase: 'menu', // menu | aim | power | keepAim | runup | fly | between | end
     phaseT: 0,
     pRes: [],
     cRes: [],
@@ -135,18 +136,20 @@ export function createPkScreen() {
     net: makeNet(),
     keeper: null, // 電腦門將（射手回合）
     striker: null, // 射手人物（門將回合）
-    selZone: -1,
+    aimPoint: null, // 射手準星 { x, y }（球門平面世界座標）
     ballType: 'straight',
     meter: { ph: 0, v: 0 },
-    shot: null, // { T, quality, banana }
+    shot: null, // { tx, ty, T, speed, banana }
+    shotQuality: null, // weak | perfect | over
     cpuPlan: null,
-    cpuZone: -1, // 電腦門將撲的格
-    dive: null, // 玩家撲救 { t, zone, lead }
+    redCircle: null, // 門將回合：來球落點 { x, y }
+    dive: null, // 玩家撲救 { t, sx, sy, hit }
     flyT: 0,
     netHit: false,
     shake: 0,
     kickFlash: 0,
     msgT: 0,
+    overMsg: null,
   }
 
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
@@ -178,7 +181,7 @@ export function createPkScreen() {
     return {
       x: 0,
       y: BALL_R,
-      z: atSpot ? 0 : GOAL.z, // 門將回合球在罰球點 = 距門 11m
+      z: atSpot ? 0 : GOAL.z,
       vx: 0,
       vy: 0,
       vz: 0,
@@ -249,25 +252,33 @@ export function createPkScreen() {
     state.sudden = false
     hideOverlay()
     sound.whistle(1)
+    // 力道條外觀：弱(藍) → 強(橘) → 完美(黃) → 過大(紅)
     const [lo, hi] = state.diff.sweet
     sweetEl.style.left = `${lo * 100}%`
     sweetEl.style.width = `${(hi - lo) * 100}%`
+    meterEl.style.background = `linear-gradient(90deg,
+      rgba(105,192,255,0.8) 0%,
+      rgba(255,157,61,0.85) ${lo * 100}%,
+      rgba(255,157,61,0.85) ${hi * 100}%,
+      rgba(231,76,60,0.9) ${hi * 100}%,
+      rgba(231,76,60,0.9) 100%)`
     setupKick()
   }
 
   function setupKick() {
     const taken = state.pRes.length + state.cRes.length
     state.playerShoots = taken % 2 === 0
-    state.selZone = -1
+    state.aimPoint = null
     state.shot = null
+    state.shotQuality = null
     state.cpuPlan = null
-    state.cpuZone = -1
+    state.redCircle = null
     state.dive = null
     state.flyT = 0
     state.netHit = false
     state.kickFlash = 0
+    state.overMsg = null
     meterEl.classList.remove('show')
-    diveBtn.classList.remove('show')
     renderBoard()
 
     if (state.playerShoots) {
@@ -280,9 +291,10 @@ export function createPkScreen() {
         t: 0,
         targetX: 0,
         targetY: 0.9,
+        reach: 0,
       }
       state.striker = null
-      state.phase = 'zone'
+      state.phase = 'aim'
       setHint(t('pkPickZone'))
       typesEl.classList.add('show')
     } else {
@@ -293,7 +305,6 @@ export function createPkScreen() {
       state.phaseT = 0
       setHint(t('pkPickSide'))
       typesEl.classList.remove('show')
-      diveBtn.classList.add('show')
       prepareCpuShot()
     }
   }
@@ -305,7 +316,6 @@ export function createPkScreen() {
     state.phase = 'between'
     state.phaseT = 0
     meterEl.classList.remove('show')
-    diveBtn.classList.remove('show')
   }
 
   function endMatch() {
@@ -318,11 +328,11 @@ export function createPkScreen() {
   }
 
   // ---------- 射手回合 ----------
-  function pickZone(sx, sy) {
+  function pickAim(sx, sy) {
     const p = cam.unprojectGoal(sx, sy)
-    const z = zoneOf(p.x, p.y)
-    if (z < 0) return
-    state.selZone = z
+    // 需點在球門附近（含柱邊緣一點容差），太離譜的點忽略
+    if (p.y < -0.4 || p.y > 3.6 || Math.abs(p.x) > 5) return
+    state.aimPoint = { x: clamp(p.x, -3.5, 3.5), y: clamp(p.y, 0.12, 2.32) }
     sound.click()
     state.phase = 'power'
     state.meter.ph = 0
@@ -341,77 +351,75 @@ export function createPkScreen() {
   function playerFire(powerV) {
     const d = state.diff
     const [lo, hi] = d.sweet
-    const zc = zoneCenter(state.selZone)
     const banana = state.ballType === 'banana'
-    let tx = zc.x
-    let ty = zc.y
+    let tx = state.aimPoint.x
+    let ty = state.aimPoint.y
     let speed
     let quality
 
     if (powerV > hi) {
-      // 射飛：超出越多偏越高越偏
+      // 力道過大 → 射飛：超出越多偏越多
       const over = (powerV - hi) / (1 - hi)
       quality = 'over'
-      ty += 0.9 + over * 2.4
+      ty += 0.8 + over * 2.2
       tx *= 1 + over * 0.5
-      speed = 24 + over * 5
-      showMsgLater = t('pkTooStrong')
-    } else if (powerV < lo) {
-      // 力道不足：球慢、下沉、容易被撲
-      const w = powerV / lo
-      quality = 'weak'
-      speed = 12 + 7 * w
-      ty = Math.max(0.15, ty * (0.45 + 0.55 * w))
-      tx = tx * (0.75 + 0.25 * w) + gauss() * 0.3
-      showMsgLater = null
+      speed = 25 + over * 4
+      state.overMsg = t('pkTooStrong')
+    } else if (powerV >= lo) {
+      // 完美力道：快、準
+      quality = 'perfect'
+      speed = banana ? 21 : 23.5
+      tx += gauss() * 0.15
+      ty += gauss() * 0.12
     } else {
-      quality = 'sweet'
-      speed = banana ? 20.5 : 23.5 // 香蕉球速度差：較慢
-      tx += gauss() * 0.2
-      ty += gauss() * 0.15
-      showMsgLater = null
+      // 力道不足：bar 越左球越慢（連續），下沉、誤差大
+      const w = powerV / lo // 0..1
+      quality = 'weak'
+      speed = 10 + 14 * Math.pow(w, 1.4)
+      ty = Math.max(0.15, ty * (0.55 + 0.45 * w))
+      tx += gauss() * 0.3
     }
+    if (banana) speed -= 1.5 // 香蕉球速度差
     state.shotQuality = quality
 
     fireShot({ tx, ty, speed, banana, dir: 1 })
 
-    // 電腦門將選格：直射讀真實落點、香蕉球讀「起始航向」→ 被誇張弧線騙
+    // 電腦門將：直射讀真實落點、香蕉球讀「起始航向」→ 被弧線騙
     const T = state.shot.T
-    let readX = tx
-    if (banana) readX = tx - 0.5 * state.ball.aLat * T * T // 無弧線時的落點 = 起始航向
-    const read = zoneOf(clamp(readX, -3.4, 3.4), clamp(ty, 0.15, 2.3))
-    if (Math.random() < d.cpuZoneRead && read >= 0) {
-      state.cpuZone = read
+    const readX = banana ? tx - 0.5 * state.ball.aLat * T * T : tx
+    const kp = state.keeper
+    if (Math.random() < d.keeperSide) {
+      kp.targetX = clamp(readX, -3.2, 3.2) * (0.8 + Math.random() * 0.3)
+      kp.targetY = clamp(ty + gauss() * 0.45, 0.3, 2.0)
     } else {
-      // 猜錯：挑一個不同列的格子
-      const col = ((read >= 0 ? read : 4) % 3) + (Math.random() < 0.5 ? 1 : 2)
-      state.cpuZone = ((Math.random() * 3) | 0) * 3 + (col % 3)
+      kp.targetX = -Math.sign(readX || 1) * (1.2 + Math.random() * 1.8) // 撲錯邊
+      kp.targetY = 0.4 + Math.random() * 1.4
     }
-    const kc = zoneCenter(state.cpuZone)
-    state.keeper.targetX = kc.x
-    state.keeper.targetY = kc.y
-    state.keeper.commitAt = 0.1 + Math.random() * 0.08
+    // 球越慢門將越來得及反應；完美力道則更難撲穩
+    kp.reach = d.keeperReach * (1 + Math.max(0, 23 - speed) * 0.055) * (quality === 'perfect' ? 0.78 : 1)
+    kp.commitAt = 0.1 + Math.random() * 0.08
   }
-
-  let showMsgLater = null
 
   // ---------- 門將回合 ----------
   function prepareCpuShot() {
     const d = state.diff
-    const corners = [0, 2, 6, 8]
-    let zone
-    if (Math.random() < d.cornerProb) zone = corners[(Math.random() * 4) | 0]
-    else zone = (Math.random() * 9) | 0
-    const zc = zoneCenter(zone)
-    let tx = zc.x + gauss() * 0.26
-    let ty = Math.max(0.12, zc.y + gauss() * 0.2)
+    let tx
+    let ty
+    if (Math.random() < d.cornerProb) {
+      tx = (Math.random() < 0.5 ? -1 : 1) * (2.3 + Math.random())
+      ty = Math.random() < 0.55 ? 0.25 + Math.random() * 0.7 : 1.5 + Math.random() * 0.7
+    } else {
+      tx = gauss() * 1.6
+      ty = 0.3 + Math.random() * 1.6
+    }
     if (Math.random() < d.missChance) {
-      // 直接射偏
+      // 直接射飛
       if (Math.random() < 0.6) tx = Math.sign(tx || 1) * (3.9 + Math.random())
       else ty = 2.7 + Math.random() * 0.8
     }
-    const speed = d.cpuSpeed[0] + Math.random() * (d.cpuSpeed[1] - d.cpuSpeed[0])
+    let speed = d.cpuSpeed[0] + Math.random() * (d.cpuSpeed[1] - d.cpuSpeed[0])
     const banana = Math.random() < d.cpuBanana
+    if (banana) speed *= 0.72 // 香蕉球慢 → 反應窗較長
     state.cpuPlan = { tx, ty, speed, banana }
   }
 
@@ -420,42 +428,36 @@ export function createPkScreen() {
     state.striker.t = 0
     state.kickFlash = 0.14
     setHint(t('pkDiveTiming'))
-    fireShot({ ...state.cpuPlan, dir: -1 }) // 朝鏡頭飛來
+    fireShot({ ...state.cpuPlan, dir: -1 })
+    // 出腳瞬間亮出紅圈：來球的最終落點
+    state.redCircle = { x: state.cpuPlan.tx, y: state.cpuPlan.ty }
   }
 
-  function selectKeepZone(sx, sy) {
-    if (state.dive) return // 已出手
-    const p = rev.unprojectGoal(sx, sy)
-    const z = zoneOf(p.x, p.y)
-    if (z < 0) return
-    state.selZone = z
-    sound.click()
+  function circleRadius() {
+    // 紅圈隨球接近縮小（緊迫感），點擊判定用同一半徑
+    const base = W * state.diff.circleR
+    const prog = state.shot ? clamp(state.flyT / state.shot.T, 0, 1) : 0
+    return base * (1.35 - 0.55 * prog)
   }
 
-  function doDive() {
-    if (state.dive) return
-    sound.unlock()
-    const zone = state.selZone >= 0 ? state.selZone : 4
-    // 出腳時間差：球已飛 flyT，總飛行 T；提前 / 太晚都撲不到
-    let lead
-    if (state.phase === 'fly') lead = state.shot.T - state.flyT
-    else lead = 99 // 還沒出腳就撲 → 太早
-    state.dive = { t: 0, zone, lead }
-    diveBtn.classList.remove('show')
+  function keeperTap(sx, sy) {
+    if (state.phase !== 'fly' || state.dive || !state.redCircle || state.ball.crossed) return
+    const p = rev.project(state.redCircle.x, state.redCircle.y, 0)
+    const hit = Math.hypot(sx - p.x, sy - p.y) <= circleRadius()
+    state.dive = { t: 0, sx, sy, hit }
     sound.thud()
   }
 
   // ---------- 出腳（共用） ----------
-  // dir: 1 = 射手回合（z 0→11）、-1 = 門將回合（z 11→0，朝鏡頭）
+  // dir: 1 = 射手回合（z 0→11）、-1 = 門將回合（z 11→0 朝鏡頭）
   function fireShot({ tx, ty, speed, banana, dir }) {
     const b = state.ball
     const vz = speed * 0.97
     const T = GOAL.z / vz
     let aLat = 0
     if (banana) {
-      // 誇張弧線：橫移可達一整格以上，會中途換格
       const cdir = -(Math.sign(tx) || (Math.random() < 0.5 ? 1 : -1))
-      aLat = cdir * (16 + 9 * (speed / 24))
+      aLat = cdir * (16 + 9 * (speed / 24)) // 誇張弧線
     }
     b.vz = dir * vz
     b.vx = (tx - b.x - 0.5 * aLat * T * T) / T
@@ -491,29 +493,20 @@ export function createPkScreen() {
       return
     }
 
-    const bz = zoneOf(cx, cy)
-    if (bz < 0) {
+    const inGoal = Math.abs(cx) < GOAL.halfW - 0.06 && cy < GOAL.height - 0.06
+    if (!inGoal) {
       b.aLat = 0
-      showMsg(showMsgLater || t('pkOffTarget'), 'bad')
-      showMsgLater = null
+      showMsg(state.overMsg || t('pkOffTarget'), 'bad')
       record('miss')
       return
     }
 
-    // 門將撲救判定（九宮格制）
-    let saved = false
-    if (state.cpuZone === bz) {
-      saved = true
-      // 甜蜜力道射角落，仍有機率太刁鑽進球
-      const isCorner = bz % 3 !== 1 && ((bz / 3) | 0) !== 1
-      if (state.shotQuality === 'sweet' && isCorner && Math.random() < 0.3) saved = false
-    } else if (state.shotQuality === 'weak' && state.cpuZone % 3 === bz % 3) {
-      saved = true // 球太慢：同一直行就來得及撲
-    }
-
+    // 門將撲救：距離制
+    const kp = state.keeper
+    const saved = Math.hypot(cx - kp.targetX, cy - kp.targetY) < kp.reach
     if (saved) {
       b.vz = -Math.abs(b.vz) * 0.28
-      b.vx = Math.sign(cx - state.keeper.targetX || 0.5) * (2.5 + Math.random() * 2)
+      b.vx = Math.sign(cx - kp.targetX || 0.5) * (2.5 + Math.random() * 2)
       b.vy = Math.max(b.vy, 1.5)
       b.aLat = 0
       sound.thud()
@@ -532,30 +525,20 @@ export function createPkScreen() {
   function resolveKeeperCrossing() {
     const b = state.ball
     b.crossed = true
-    const cx = b.x
-    const cy = b.y
-    const bz = zoneOf(cx, cy)
+    const inGoal = Math.abs(b.x) < GOAL.halfW - 0.06 && b.y < GOAL.height - 0.06
 
-    if (bz < 0) {
+    if (!inGoal) {
       b.aLat = 0
       showMsg(t('pkCpuMissed'), 'good')
       record('miss')
       return
     }
 
-    let saved = false
-    let failMsg = null
-    if (state.dive && state.dive.zone === bz) {
-      const lead = state.dive.lead
-      if (lead >= 0.04 && lead <= 0.55) saved = true
-      else failMsg = lead > 0.55 ? t('pkTooEarly') : t('pkTooLate')
-    }
-
-    if (saved) {
-      // 撲出：球反彈回場內
+    if (state.dive && state.dive.hit) {
+      // 點中紅圈 → 擋下，球反彈回場內
       b.vz = 3 + Math.random() * 3
       b.vy = Math.max(b.vy, 2.5)
-      b.vx = Math.sign(cx || 0.5) * (2 + Math.random() * 2)
+      b.vx = Math.sign(b.x || 0.5) * (2 + Math.random() * 2)
       b.aLat = 0
       sound.thud()
       state.shake = 0.35
@@ -563,7 +546,7 @@ export function createPkScreen() {
       record('miss')
     } else {
       b.isGoal = true
-      showMsg(failMsg || t('pkConceded'), 'bad')
+      showMsg(t('pkConceded'), 'bad')
       sound.swish()
       record('goal')
     }
@@ -581,7 +564,7 @@ export function createPkScreen() {
       if (state.msgT <= 0) msgEl.classList.remove('show')
     }
 
-    // 力道條
+    // 力道條（香蕉球速度不均）
     if (state.phase === 'power') {
       const banana = state.ballType === 'banana'
       const mod = banana ? 0.45 + 1.15 * Math.pow(Math.sin(state.time * 2.9), 2) : 1
@@ -591,7 +574,7 @@ export function createPkScreen() {
       cursorEl.style.left = `${state.meter.v * 100}%`
     }
 
-    // 門將回合節奏：選格 → 助跑 → 出腳
+    // 門將回合節奏
     if (state.phase === 'keepAim' && state.phaseT >= AIM_WAIT) {
       state.phase = 'runup'
       state.phaseT = 0
@@ -606,12 +589,11 @@ export function createPkScreen() {
 
     const kp = state.keeper
     if (kp && kp.pose === 'dive') kp.t = Math.min(1.4, kp.t + dt / DIVE_DUR)
-    if (state.dive) state.dive.t = Math.min(1.4, state.dive.t + dt / 0.32)
+    if (state.dive) state.dive.t = Math.min(1.4, state.dive.t + dt / 0.3)
 
     const b = state.ball
     if (b && b.live) {
       state.flyT += dt
-      // 電腦門將起跳
       if (state.playerShoots && kp && kp.pose === 'idle' && state.flyT >= (kp.commitAt || 0.12)) {
         kp.pose = 'dive'
         kp.t = 0
@@ -632,7 +614,6 @@ export function createPkScreen() {
         else if (!state.playerShoots && b.z <= 0.02) resolveKeeperCrossing()
       }
 
-      // 進球撞網（射手視角才有網）
       if (state.playerShoots && b.isGoal && !state.netHit && b.z >= state.net.zBack(Math.max(0, b.y)) - 0.08) {
         state.netHit = true
         state.net.impact(b.x, clamp(b.y, 0, GOAL.height), 0.22 + Math.abs(b.vz) * 0.012)
@@ -676,13 +657,9 @@ export function createPkScreen() {
     ctx.drawImage(bgFwd, 0, 0, W, H)
     drawGoalAndNet(ctx, cam, state.net)
 
-    // 九宮格（選格 / 力道階段顯眼，飛行中淡出）
-    if (state.phase === 'zone' || state.phase === 'power') drawGridFwd(ctx, cam, state.selZone, 0.85)
-    else if (state.phase === 'fly') drawGridFwd(ctx, cam, -1, 0.18)
-
     const b = state.ball
     const kp = state.keeper
-    const ballVisible = b && b.z > -1.2 // 球飛過相機平面後不再繪製（s 轉負會炸）
+    const ballVisible = b && b.z > -1.2
     if (ballVisible) {
       const sh = cam.project(b.x, 0, Math.min(b.z, GOAL.z + 1.4))
       const hN = clamp(1 - b.y / 3.2, 0.25, 1)
@@ -695,25 +672,40 @@ export function createPkScreen() {
     if (ballVisible && ballBehind) paintBallFwd(b)
     if (kp) drawKeeper(ctx, cam, kp, state.time)
     if (ballVisible && !ballBehind) paintBallFwd(b)
+
+    // 瞄準準星（選點與力道階段）
+    if ((state.phase === 'aim' || state.phase === 'power') && state.aimPoint) {
+      const p = cam.project(state.aimPoint.x, state.aimPoint.y, GOAL.z)
+      const r = Math.max(10, cam.K * 0.045)
+      ctx.strokeStyle = 'rgba(255,211,61,0.95)'
+      ctx.lineWidth = 2.5
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.beginPath()
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        ctx.moveTo(p.x + dx * r * 0.55, p.y + dy * r * 0.55)
+        ctx.lineTo(p.x + dx * r * 1.45, p.y + dy * r * 1.45)
+      }
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(255,211,61,0.95)'
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
   }
 
   function renderKeeperView() {
     ctx.drawImage(bgRev, 0, 0, W, H)
 
-    // 九宮格
-    const gridAlpha = state.phase === 'fly' ? 0.4 : 0.75
-    drawGridRev(ctx, rev, state.dive ? state.dive.zone : state.selZone, gridAlpha)
-
-    // 射手
     if (state.striker) drawStriker(ctx, rev, state.striker, state.time)
 
-    // 球
     const b = state.ball
     if (b && b.z > -0.5) {
       const sh = rev.project(b.x, 0, Math.max(0, b.z))
       ctx.fillStyle = 'rgba(0,0,0,0.25)'
       ctx.beginPath()
-      ctx.ellipse(sh.x, sh.y, BALL_R * 3 * rev.Kx * sh.s, BALL_R * 1.1 * rev.Ky * sh.s, 0, 0, Math.PI * 2)
+      ctx.ellipse(sh.x, sh.y, BALL_R * 2 * rev.Kx * sh.s, BALL_R * 0.8 * rev.Ky * sh.s, 0, 0, Math.PI * 2)
       ctx.fill()
       const p = rev.project(b.x, b.y, Math.max(-0.3, b.z))
       const r = Math.max(4, BALL_R * 2.0 * rev.Ky * p.s)
@@ -728,21 +720,39 @@ export function createPkScreen() {
       })
     }
 
-    // 出腳瞬間閃光（明確的射門時機提示）
+    // 出腳瞬間閃光
     if (state.kickFlash > 0 && b) {
       const p = rev.project(b.x, b.y, b.z)
       const a = state.kickFlash / 0.14
-      const fr = rev.W * 0.1 * (1.6 - a)
       ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`
       ctx.beginPath()
-      ctx.arc(p.x, p.y, fr, 0, Math.PI * 2)
+      ctx.arc(p.x, p.y, rev.W * 0.1 * (1.6 - a), 0, Math.PI * 2)
       ctx.fill()
     }
 
-    // 球門框（最前景，蓋在球之上）
+    // 紅圈：來球落點，點到才擋得下（隨球接近縮小）
+    if (state.redCircle && state.phase === 'fly' && !b.crossed) {
+      const p = rev.project(state.redCircle.x, state.redCircle.y, 0)
+      const r = circleRadius()
+      const pulse = 1 + Math.sin(state.time * 14) * 0.04
+      ctx.strokeStyle = 'rgba(231,60,50,0.95)'
+      ctx.lineWidth = 5
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r * pulse, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r * pulse * 0.82, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(231,60,50,0.15)'
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r * pulse, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
     drawGoalFrameRev(ctx, rev)
 
-    // 玩家手套
     if (state.dive) drawGloves(ctx, rev, state.dive)
   }
 
@@ -786,14 +796,10 @@ export function createPkScreen() {
   canvas.addEventListener('pointerdown', (e) => {
     const [x, y] = pointerXY(e)
     sound.unlock()
-    if (state.phase === 'zone') pickZone(x, y)
+    if (state.phase === 'aim') pickAim(x, y)
     else if (state.phase === 'power') lockPower()
-    else if (!state.playerShoots && (state.phase === 'keepAim' || state.phase === 'runup' || state.phase === 'fly')) {
-      selectKeepZone(x, y)
-    }
+    else if (!state.playerShoots && state.phase === 'fly') keeperTap(x, y)
   })
-
-  diveBtn.addEventListener('click', doDive)
 
   typesEl.addEventListener('click', (e) => {
     const btn = e.target.closest('button')
@@ -868,9 +874,9 @@ export function createPkScreen() {
   if (location.search.includes('fgtest')) {
     window.__pk = {
       state,
-      pickZone: (i) => {
-        if (state.phase !== 'zone') return false
-        state.selZone = i
+      aim: (x, y) => {
+        if (state.phase !== 'aim') return false
+        state.aimPoint = { x, y }
         state.phase = 'power'
         state.meter.ph = 0
         meterEl.classList.add('show')
@@ -882,17 +888,19 @@ export function createPkScreen() {
         lockPower()
         return true
       },
-      keepZone: (i) => {
-        state.selZone = i
+      tapCircle: () => {
+        if (!state.redCircle) return false
+        const p = rev.project(state.redCircle.x, state.redCircle.y, 0)
+        keeperTap(p.x, p.y)
+        return true
       },
-      diveNow: () => doDive(),
     }
   }
 
   requestAnimationFrame(() => {
     resize()
     state.ball = newBall(true)
-    state.keeper = { x: 0, z: KEEPER_Z, color: '#e8a200', pose: 'idle', t: 0, targetX: 0, targetY: 0.9 }
+    state.keeper = { x: 0, z: KEEPER_Z, color: '#e8a200', pose: 'idle', t: 0, targetX: 0, targetY: 0.9, reach: 0 }
     renderBoard()
     showOverlay(menuOverlay())
     state.last = performance.now()

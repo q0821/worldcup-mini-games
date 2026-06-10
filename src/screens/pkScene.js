@@ -286,68 +286,6 @@ export function drawGoalAndNet(ctx, cam, net) {
   post(-GOAL.halfW, GOAL.height, GOAL.halfW, GOAL.height)
 }
 
-// ---------- 九宮格 ----------
-// 格子編號：0..8，左上為 0、右下為 8（世界座標：col0 = 射手視角左側）。
-const COLS = [-GOAL.halfW, -1.22, 1.22, GOAL.halfW]
-const ROWS = [GOAL.height, 1.627, 0.813, 0] // row0 = 上排
-
-export function zoneCenter(i) {
-  const col = i % 3
-  const row = (i / 3) | 0
-  return { x: (COLS[col] + COLS[col + 1]) / 2, y: (ROWS[row] + ROWS[row + 1]) / 2 }
-}
-
-export function zoneOf(x, y) {
-  if (Math.abs(x) > GOAL.halfW || y < 0 || y > GOAL.height) return -1
-  const col = x < -1.22 ? 0 : x > 1.22 ? 2 : 1
-  const row = y > 1.627 ? 0 : y > 0.813 ? 1 : 2
-  return row * 3 + col
-}
-
-// 射手視角的九宮格（畫在球門平面 z = GOAL.z）
-export function drawGridFwd(ctx, cam, selected, alpha = 0.5) {
-  const P = (x, y) => cam.project(x, y, GOAL.z)
-  ctx.save()
-  ctx.globalAlpha = alpha
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-  ctx.lineWidth = 1.5
-  for (const x of [-1.22, 1.22]) {
-    const a = P(x, 0)
-    const b = P(x, GOAL.height)
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
-  }
-  for (const y of [0.813, 1.627]) {
-    const a = P(-GOAL.halfW, y)
-    const b = P(GOAL.halfW, y)
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
-  }
-  if (selected >= 0) {
-    const col = selected % 3
-    const row = (selected / 3) | 0
-    const corners = [
-      P(COLS[col], ROWS[row]),
-      P(COLS[col + 1], ROWS[row]),
-      P(COLS[col + 1], ROWS[row + 1]),
-      P(COLS[col], ROWS[row + 1]),
-    ]
-    ctx.fillStyle = 'rgba(255,211,61,0.32)'
-    ctx.strokeStyle = 'rgba(255,211,61,0.95)'
-    ctx.lineWidth = 2.5
-    ctx.beginPath()
-    corners.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
-    ctx.closePath()
-    ctx.fill()
-    ctx.stroke()
-  }
-  ctx.restore()
-}
-
 // ---------- 門將視角（反向：站在門裡看射手） ----------
 // 眼高模型：視線高度 eye（站姿門將），與眼同高的點落在地平線，
 // 近物向下散開、來球「迎面放大」才符合第一人稱直覺。
@@ -356,9 +294,9 @@ export function drawGridFwd(ctx, cam, selected, alpha = 0.5) {
 export function makeRevView(W, H) {
   const c = 2.5
   const eye = 1.65 // 門將視線高度 (m)
-  const Kx = (W * 0.88) / (GOAL.halfW * 2)
-  const Ky = (H * 0.36) / GOAL.height // 球門佔畫面高 36%
-  const baseY = H * 0.64 // 球門線地面
+  const Kx = (W * 0.94) / (GOAL.halfW * 2)
+  const Ky = (H * 0.44) / GOAL.height // 球門佔畫面高 44%
+  const baseY = H * 0.7 // 球門線地面
   const horizonY = baseY - eye * Ky
   const goalTop = horizonY - (GOAL.height - eye) * Ky
   const s = (z) => c / (c + z)
@@ -473,44 +411,6 @@ export function drawGoalFrameRev(ctx, view) {
   ctx.stroke()
 }
 
-export function drawGridRev(ctx, view, selected, alpha = 0.55) {
-  const P = (x, y) => view.project(x, y, 0)
-  ctx.save()
-  ctx.globalAlpha = alpha
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-  ctx.lineWidth = 2
-  for (const x of [-1.22, 1.22]) {
-    const a = P(x, 0)
-    const b = P(x, GOAL.height)
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
-  }
-  for (const y of [0.813, 1.627]) {
-    const a = P(-GOAL.halfW, y)
-    const b = P(GOAL.halfW, y)
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
-  }
-  if (selected >= 0) {
-    const col = selected % 3
-    const row = (selected / 3) | 0
-    const a = P(COLS[col], ROWS[row])
-    const b = P(COLS[col + 1], ROWS[row + 1])
-    ctx.fillStyle = 'rgba(255,211,61,0.3)'
-    ctx.strokeStyle = 'rgba(255,211,61,0.95)'
-    ctx.lineWidth = 3
-    const x0 = Math.min(a.x, b.x)
-    const y0 = Math.min(a.y, b.y)
-    ctx.fillRect(x0, y0, Math.abs(b.x - a.x), Math.abs(b.y - a.y))
-    ctx.strokeRect(x0, y0, Math.abs(b.x - a.x), Math.abs(b.y - a.y))
-  }
-  ctx.restore()
-}
-
 // 射手（門將視角，站在罰球點後）。st: { phase: 'wait'|'run'|'kick', t }
 export function drawStriker(ctx, view, st, time) {
   // 助跑路徑：右腳射手自畫面側邊斜進
@@ -585,11 +485,10 @@ export function drawStriker(ctx, view, st, time) {
   ctx.restore()
 }
 
-// 玩家撲救手套（門將視角，從畫面下方撲向選定格子）。dive: { t, zone }
+// 玩家撲救手套（門將視角，從畫面下方撲向點擊位置）。dive: { t, sx, sy }
 export function drawGloves(ctx, view, dive) {
   const tt = 1 - Math.pow(1 - Math.min(1, dive.t), 2.2)
-  const zc = zoneCenter(dive.zone)
-  const target = view.project(zc.x, zc.y, 0)
+  const target = { x: dive.sx, y: dive.sy }
   const sx = view.W / 2
   const sy = view.H * 1.08
   const gx = sx + (target.x - sx) * tt
