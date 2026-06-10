@@ -4,6 +4,7 @@ import { showScreen } from '../core/screens.js'
 import { makeBgLayer } from '../core/bg.js'
 import { icons } from '../core/icons.js'
 import { createKeepyScreen } from './keepy.js'
+import { createPkScreen } from './pk.js'
 
 export function createHomeScreen() {
   const el = document.createElement('div')
@@ -22,7 +23,16 @@ export function createHomeScreen() {
       },
     },
     { icon: icons.camera, title: t('mode2Title'), desc: t('mode2Desc'), soon: true },
-    { icon: icons.goal, title: t('mode3Title'), desc: t('mode3Desc'), soon: true },
+    {
+      icon: icons.goal,
+      title: t('mode3Title'),
+      desc: t('mode3Desc'),
+      open: () => {
+        sound.unlock()
+        sound.click()
+        showScreen(createPkScreen)
+      },
+    },
   ]
 
   const home = document.createElement('div')
