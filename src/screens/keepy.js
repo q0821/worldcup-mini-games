@@ -4,6 +4,7 @@ import { showScreen } from '../core/screens.js'
 import { makeBgLayer } from '../core/bg.js'
 import { icons } from '../core/icons.js'
 import { getBest, submitScore } from '../core/storage.js'
+import { bindShare } from '../core/share.js'
 import { drawBall } from '../ball.js'
 import { createHomeScreen } from './home.js'
 
@@ -298,10 +299,12 @@ export function createKeepyScreen() {
       <p class="big">${score}</p>
       ${isRecord ? `<p class="record">★ ${t('newRecord')}</p>` : ''}
       <button class="btn" id="retry">${t('retry')}</button>
+      <button class="btn share" id="share">${t('share')}</button>
       <button class="btn ghost" id="home">${t('back')}</button>
     `
     o.querySelector('#retry').addEventListener('click', start)
     o.querySelector('#home').addEventListener('click', () => showScreen(createHomeScreen))
+    bindShare(o.querySelector('#share'), MODE, score)
     return o
   }
 

@@ -9,6 +9,7 @@ import { sound } from '../core/sound.js'
 import { showScreen } from '../core/screens.js'
 import { icons } from '../core/icons.js'
 import { getBest, submitScore } from '../core/storage.js'
+import { bindShare } from '../core/share.js'
 import { drawBall } from '../ball.js'
 import { createHomeScreen } from './home.js'
 import { CameraTracker, PointerTracker } from './headerTracker.js'
@@ -514,6 +515,7 @@ export function createHeaderScreen() {
       ${isRecord ? `<p class="record">★ ${t('newRecord')}</p>` : ''}
       <p class="hd-best">${t('bestScore')}: ${getBest(MODE)}</p>
       <button class="btn" id="retry">${t('retry')}</button>
+      <button class="btn share" id="share">${t('share')}</button>
       <button class="btn ghost" id="home">${t('back')}</button>
     `
     o.querySelector('#retry').addEventListener('click', () => {
@@ -521,6 +523,7 @@ export function createHeaderScreen() {
       showOverlay(introOverlay())
     })
     o.querySelector('#home').addEventListener('click', () => showScreen(createHomeScreen))
+    bindShare(o.querySelector('#share'), MODE, score)
     return o
   }
 

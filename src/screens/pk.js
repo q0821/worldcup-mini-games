@@ -15,6 +15,8 @@ import { t } from '../core/i18n.js'
 import { sound } from '../core/sound.js'
 import { showScreen } from '../core/screens.js'
 import { icons } from '../core/icons.js'
+import { submitScore } from '../core/storage.js'
+import { bindShare } from '../core/share.js'
 import { drawBall } from '../ball.js'
 import { createHomeScreen } from './home.js'
 import {
@@ -321,6 +323,7 @@ export function createPkScreen() {
   function endMatch() {
     state.phase = 'end'
     const win = goals(state.pRes) > goals(state.cRes)
+    submitScore('pk', goals(state.pRes)) // 記錄單場最高進球數
     sound.whistle(3)
     if (win) sound.crowd(2.2, 0.4)
     else sound.fail()
@@ -848,6 +851,7 @@ export function createPkScreen() {
       <h2>${win ? t('pkWin') : t('pkLose')}</h2>
       <p class="big">${goals(state.pRes)} : ${goals(state.cRes)}</p>
       <button class="btn" id="retry">${t('retry')}</button>
+      <button class="btn share" id="share">${t('share')}</button>
       <button class="btn ghost" id="home">${t('back')}</button>
     `
     o.querySelector('#retry').addEventListener('click', () => {
@@ -856,6 +860,7 @@ export function createPkScreen() {
       state.phase = 'menu'
     })
     o.querySelector('#home').addEventListener('click', () => showScreen(createHomeScreen))
+    bindShare(o.querySelector('#share'), 'pk', goals(state.pRes))
     return o
   }
 

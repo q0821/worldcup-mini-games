@@ -523,3 +523,11 @@ body {
   padding: 10px 22px;
   font-size: 15px;
 }
+.btn.share {
+  background: #2f80ed;
+  color: #fff;
+  box-shadow: 0 5px 0 #1c5bb0;
+}
+.btn.share:active {
+  box-shadow: 0 2px 0 #1c5bb0;
+}
