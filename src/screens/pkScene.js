@@ -166,12 +166,14 @@ export function makeCrowd(W, horizonY) {
 }
 
 // 把觀眾畫到指定 ctx（原始小色點；模糊由呼叫端對整批一次套用以省效能）。
-// anim: { cheer (0..1 歡呼跳動), sink (0..1 往下坐), time }
+// anim: { cheer (0..1 歡呼跳動), sink (0..1 往下坐＝沮喪), time }
 export function drawCrowd(ctx, crowd, anim) {
+  const dim = 1 - 0.55 * anim.sink // 沮喪時變暗變安靜（露出後方深色看台）
   for (const s of crowd) {
-    let dy = anim.sink * (s.lower ? 7 : 5) // 沒進 → 往下坐
+    // 沒進 → 明顯往下癱坐（每個人略不同，更像洩氣）
+    let dy = anim.sink * (s.lower ? 15 : 11) * (0.7 + 0.6 * ((s.ph * 13) % 1))
     if (anim.cheer > 0) dy -= Math.abs(Math.sin(anim.time * 9 + s.ph)) * (s.lower ? 8 : 6) * anim.cheer // 歡呼跳動
-    ctx.globalAlpha = s.a
+    ctx.globalAlpha = s.a * dim
     ctx.fillStyle = s.col
     ctx.fillRect(s.x, s.y + dy, s.size, s.size * 1.3)
   }

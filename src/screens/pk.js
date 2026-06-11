@@ -820,7 +820,7 @@ export function createPkScreen() {
     // 觀眾情緒（不分階段都推進）：歡呼慢衰減、坐下快回復
     crowdAnim.time += dt
     crowdAnim.cheer = Math.max(0, crowdAnim.cheer - dt * 0.5)
-    crowdAnim.sink = Math.max(0, crowdAnim.sink - dt * 1.2)
+    crowdAnim.sink = Math.max(0, crowdAnim.sink - dt * 0.7) // 沮喪退得慢一點
     render()
   }
 
@@ -916,6 +916,7 @@ export function createPkScreen() {
   if (location.search.includes('fgtest')) {
     window.__pk = {
       state,
+      crowdAnim,
       aim: (x, y) => {
         if (state.phase !== 'aim') return false
         state.aimPoint = { x, y }
