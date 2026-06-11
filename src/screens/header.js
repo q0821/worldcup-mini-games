@@ -90,6 +90,27 @@ export function createHeaderScreen() {
 
   const goal = { cx: 0, halfW: 0, baseY: 0, h: 0, shake: 0 } // baseY = 門柱站在草地上的基準線
   const head = { x: 0, y: 0, vx: 0, vy: 0, r: 56, active: false } // 場上「頂球點」
+
+  // 球門網：2D 阻尼彈簧網格（進球時往後凸起漣漪再回彈）
+  const NETX = 11
+  const NETY = 7
+  const netD = new Float32Array(NETX * NETY) // 往「球門內」凸起位移
+  const netV = new Float32Array(NETX * NETY)
+  function netImpact(u, v, f) {
+    for (let j = 0; j < NETY; j++) {
+      for (let i = 0; i < NETX; i++) {
+        const du = i / (NETX - 1) - u
+        const dv = j / (NETY - 1) - v
+        netV[j * NETX + i] += f * Math.exp(-(du * du + dv * dv) / 0.06)
+      }
+    }
+  }
+  function netUpdate(dt) {
+    for (let n = 0; n < netD.length; n++) {
+      netV[n] += (-90 * netD[n] - 9 * netV[n]) * dt
+      netD[n] += netV[n] * dt
+    }
+  }
   const state = {
     raf: 0,
     last: 0,
@@ -242,6 +263,7 @@ export function createHeaderScreen() {
     if (goal.shake > 0) goal.shake = Math.max(0, goal.shake - dt * 2.4)
     if (state.flash > 0) state.flash -= dt
     if (state.contactCd > 0) state.contactCd -= dt
+    netUpdate(dt)
 
     if (tracker) tracker.update(dt, W, H)
     updateHead()
@@ -311,7 +333,11 @@ export function createHeaderScreen() {
           scoreEl.classList.remove('pop')
           void scoreEl.offsetWidth
           scoreEl.classList.add('pop')
-          goal.shake = 0.6
+          goal.shake = 0.4
+          // 進球網子漣漪：依落點觸發背網凸起
+          const u = clamp((b.x1 - (goal.cx - goal.halfW)) / (2 * goal.halfW), 0, 1)
+          const v = clamp((b.y1 - (goal.baseY - goal.h)) / goal.h, 0, 1)
+          netImpact(u, v, 0.5)
           showMsg(t('hdGoal'), 'good')
           sound.swish()
           sound.point()
@@ -400,57 +426,98 @@ export function createHeaderScreen() {
   }
 
   function drawGoal() {
-    const sx = goal.shake > 0 ? (Math.random() - 0.5) * goal.shake * 7 : 0
+    const sx = goal.shake > 0 ? (Math.random() - 0.5) * goal.shake * 6 : 0
     const cx = goal.cx + sx
     const x0 = cx - goal.halfW
     const x1 = cx + goal.halfW
     const topY = goal.baseY - goal.h
     const botY = goal.baseY
+    const post = Math.max(5, goal.halfW * 0.05)
+    // 網子深度（往畫面內 = 往上 + 收窄）
+    const depth = goal.h * 0.62
+    const bx0 = x0 + depth * 0.34
+    const bx1 = x1 - depth * 0.34
+    const bTop = topY - depth * 0.42
+    const bBot = botY - depth * 0.5
 
-    // 門柱落地陰影（讓球門站在草地上、不漂浮）
+    // 柔和落地陰影（模糊、低透明、貼著門柱底）
     ctx.save()
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    if (ctx.filter !== undefined) ctx.filter = 'blur(9px)'
+    ctx.fillStyle = 'rgba(0,0,0,0.16)'
     ctx.beginPath()
-    ctx.ellipse(cx, botY + 4, goal.halfW * 1.12, goal.halfW * 0.12, 0, 0, Math.PI * 2)
+    ctx.ellipse(cx, botY + post * 0.6, goal.halfW * 0.96, goal.halfW * 0.085, 0, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+    // 背板網格節點：靜止時在背板（呈現 3D 深度），進球時沿「前→後」方向往後凸（漣漪）
+    const node = (i, j) => {
+      const u = i / (NETX - 1)
+      const v = j / (NETY - 1)
+      const fx = x0 + (x1 - x0) * u
+      const fy = topY + (botY - topY) * v
+      const px = bx0 + (bx1 - bx0) * u
+      const py = bTop + (bBot - bTop) * v
+      const d = netD[j * NETX + i]
+      return [px + (px - fx) * d * 0.8, py + (py - fy) * d * 0.8]
+    }
+
+    // 背網格線
+    ctx.strokeStyle = 'rgba(245,248,250,0.34)'
     ctx.lineWidth = 1
-    const cols = 9
-    const rows = 5
-    for (let i = 0; i <= cols; i++) {
-      const x = x0 + ((x1 - x0) * i) / cols
+    for (let j = 0; j < NETY; j++) {
       ctx.beginPath()
-      ctx.moveTo(x, topY)
-      ctx.lineTo(x, botY)
+      for (let i = 0; i < NETX; i++) {
+        const [nx, ny] = node(i, j)
+        i ? ctx.lineTo(nx, ny) : ctx.moveTo(nx, ny)
+      }
       ctx.stroke()
     }
-    for (let j = 0; j <= rows; j++) {
-      const y = topY + ((botY - topY) * j) / rows
+    for (let i = 0; i < NETX; i++) {
       ctx.beginPath()
-      ctx.moveTo(x0, y)
-      ctx.lineTo(x1, y)
+      for (let j = 0; j < NETY; j++) {
+        const [nx, ny] = node(i, j)
+        j ? ctx.lineTo(nx, ny) : ctx.moveTo(nx, ny)
+      }
       ctx.stroke()
     }
-    ctx.strokeStyle = '#f4f6f7'
-    ctx.lineWidth = Math.max(5, goal.halfW * 0.055)
+    // 側網 / 頂網（前框 → 背板）
+    ctx.strokeStyle = 'rgba(245,248,250,0.26)'
+    const link = (fx, fy, i, j) => {
+      const [nx, ny] = node(i, j)
+      ctx.beginPath()
+      ctx.moveTo(fx, fy)
+      ctx.lineTo(nx, ny)
+      ctx.stroke()
+    }
+    for (let j = 0; j < NETY; j++) {
+      const v = j / (NETY - 1)
+      link(x0, topY + (botY - topY) * v, 0, j)
+      link(x1, topY + (botY - topY) * v, NETX - 1, j)
+    }
+    for (let i = 1; i < NETX - 1; i++) {
+      const u = i / (NETX - 1)
+      link(x0 + (x1 - x0) * u, topY, i, 0)
+    }
+
+    // 門柱 + 橫楣（圓柱感：主體白 + 右側陰影邊）
     ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(x0, botY)
-    ctx.lineTo(x0, topY)
-    ctx.lineTo(x1, topY)
-    ctx.lineTo(x1, botY)
-    ctx.stroke()
-    // 門口提示
-    ctx.strokeStyle = 'rgba(255,211,61,0.55)'
-    ctx.lineWidth = 2
-    ctx.setLineDash([10, 8])
-    ctx.beginPath()
-    ctx.moveTo(x0, botY)
-    ctx.lineTo(x1, botY)
-    ctx.stroke()
-    ctx.setLineDash([])
+    const drawBar = (ax, ay, bx, by) => {
+      ctx.strokeStyle = '#f4f6f7'
+      ctx.lineWidth = post
+      ctx.beginPath()
+      ctx.moveTo(ax, ay)
+      ctx.lineTo(bx, by)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(120,132,140,0.5)'
+      ctx.lineWidth = post * 0.3
+      ctx.beginPath()
+      ctx.moveTo(ax + post * 0.28, ay)
+      ctx.lineTo(bx + post * 0.28, by)
+      ctx.stroke()
+    }
+    drawBar(x0, botY, x0, topY)
+    drawBar(x1, botY, x1, topY)
+    drawBar(x0, topY, x1, topY)
   }
 
   function drawHeadMarker() {
@@ -618,6 +685,7 @@ export function createHeaderScreen() {
       state,
       goal,
       head,
+      ripple: (u = 0.5, v = 0.5, f = 0.5) => netImpact(u, v, f),
       get tracker() {
         return tracker
       },
