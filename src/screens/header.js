@@ -23,7 +23,8 @@ pitchBg.onload = () => {
 pitchBg.src = 'assets/bg/header.webp'
 
 const MODE = 'header'
-const GAME_SEC = 60
+const GAME_SEC = 30
+const SERVE_WAIT = 0.7 // 哨音後等待這麼久才把球傳進來（也讓脖子休息）
 const HEAD_SWING_THRESH = 230 // 頭擺動速度門檻 (px/s，任意方向)，超過才算有效頂球
 const HEAD_X_GAIN = 1.7 // 頭左右移動 → 頂球點的放大（小幅擺頭即可涵蓋全寬）
 const HEAD_Y_GAIN = 1.5
@@ -111,12 +112,14 @@ export function createHeaderScreen() {
     canvas.height = Math.round(H * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     goal.cx = W / 2
-    goal.halfW = clamp(W * 0.26, 104, 200)
-    goal.h = goal.halfW * 0.62
-    goal.baseY = H * 0.36 // 站在遠方草地上
+    // 以 min(W,H) 為基準，直式 / 橫式都不會太小或太寬；較高、不再「太矮」
+    const u = Math.min(W, H)
+    goal.halfW = clamp(u * 0.34, 100, 280)
+    goal.h = goal.halfW * 0.82
+    goal.baseY = H * 0.5 // 站在草地上（背景看台之下）
   }
 
-  const HORIZON = () => H * 0.2 // 天空 / 草皮分界
+  const HORIZON = () => H * 0.3 // 天空 / 草皮分界（fallback 漸層用）
   const headLineY = () => H * 0.62
 
   // 球從左 / 右側拋物線傳中飛入
@@ -143,11 +146,18 @@ export function createHeaderScreen() {
       scored: false,
       willScore: false,
       outDur: T_OUT,
+      serveWait: SERVE_WAIT, // 哨音後等一下才入場
       x0: 0,
       y0: 0,
       x1: 0,
       y1: 0,
     }
+  }
+
+  // 發球：產生新球並吹哨（遊戲進行中才吹）
+  function serve() {
+    state.ball = newBall()
+    if (state.running) sound.whistle(1)
   }
 
   // 動量轉移：頂出方向由頭擺動向量 + 撞擊點決定，再混入朝球門偏置。
@@ -238,6 +248,13 @@ export function createHeaderScreen() {
 
     if (!state.running) return
 
+    const b = state.ball
+    // 哨音後等待：球在場外待命、不扣時間（讓玩家準備 / 休息）
+    if (b.serveWait > 0) {
+      b.serveWait -= dt
+      return
+    }
+
     state.timeLeft -= dt
     timeEl.style.width = `${clamp(state.timeLeft / GAME_SEC, 0, 1) * 100}%`
     if (state.timeLeft <= 0) {
@@ -245,7 +262,6 @@ export function createHeaderScreen() {
       return
     }
 
-    const b = state.ball
     b.t += dt
     b.rot += b.vrot * dt
     b.sqv += (-900 * b.sq - 18 * b.sqv) * dt
@@ -280,7 +296,7 @@ export function createHeaderScreen() {
       // 飛出畫面 → 沒接到
       if (b.x + b.r < -30 || b.x - b.r > W + 30 || b.y - b.r > H + 30) {
         if (!b.headed) showMsg(t('hdMiss'), 'bad')
-        state.ball = newBall()
+        serve()
       }
     } else if (b.phase === 'out') {
       // 頂出 → 縮小飛向遠方球門
@@ -303,7 +319,7 @@ export function createHeaderScreen() {
         } else {
           showMsg(t('hdMiss'), 'bad')
         }
-        state.ball = newBall()
+        serve()
       }
     }
   }
