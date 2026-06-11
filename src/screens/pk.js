@@ -51,10 +51,12 @@ const DIFFS = {
     sweet: [0.56, 0.84], // 完美力道區（寬）
     meterHz: 0.7,
     keeperSide: 0.48, // 電腦門將判對方向機率
+    keeperCenter: 0.22, // 沒讀到方向時「守中路」機率 → 射正中不再必進
     keeperReach: 0.85,
     missChance: 0.18, // 電腦直接射偏機率
-    cpuSpeed: [11, 15], // 球速放慢 → 反應窗較長、好擋
+    cpuSpeed: [15, 19], // 直球快 → 反應窗短
     cpuBanana: 0.18,
+    bananaSlow: 0.55, // 香蕉球速度倍率（更慢 → 與直球速度差拉大）
     cornerProb: 0.45,
     circleRm: 1.1, // 紅圈半徑（公尺，依球門比例投影 → 跨裝置一致）
   },
@@ -62,10 +64,12 @@ const DIFFS = {
     sweet: [0.64, 0.76], // 完美力道區（窄）
     meterHz: 1.1,
     keeperSide: 0.7,
+    keeperCenter: 0.3,
     keeperReach: 1.0,
     missChance: 0.08,
-    cpuSpeed: [15, 20],
+    cpuSpeed: [19, 24],
     cpuBanana: 0.38,
+    bananaSlow: 0.5,
     cornerProb: 0.82,
     circleRm: 0.78,
   },
@@ -473,13 +477,17 @@ export function createPkScreen() {
 
     fireShot({ tx, ty, speed, aLat, dir: 1 })
 
-    // 電腦門將：讀「起始航向」（不含弧線的落點）→ 香蕉球會騙過它
+    // 電腦門將：讀「起始航向」（不含弧線的落點）→ 香蕉球會騙過它。
+    // 三種反應：讀對方向 / 守中路（沒讀到但賭你射中間）/ 撲錯邊 → 射正中不再是必進
     const T = state.shot.T
     const readX = tx - 0.5 * aLat * T * T
     const kp = state.keeper
     if (Math.random() < d.keeperSide) {
       kp.targetX = clamp(readX, -3.2, 3.2) * (0.8 + Math.random() * 0.3)
       kp.targetY = clamp(ty + gauss() * 0.45, 0.3, 2.0)
+    } else if (Math.random() < d.keeperCenter) {
+      kp.targetX = gauss() * 0.35 // 站在中路附近不亂撲
+      kp.targetY = 0.7 + Math.random() * 0.8
     } else {
       kp.targetX = -Math.sign(readX || 1) * (1.2 + Math.random() * 1.8) // 撲錯邊
       kp.targetY = 0.4 + Math.random() * 1.4
@@ -509,9 +517,9 @@ export function createPkScreen() {
     let speed = d.cpuSpeed[0] + Math.random() * (d.cpuSpeed[1] - d.cpuSpeed[0])
     let aLat = 0
     if (Math.random() < d.cpuBanana) {
-      speed *= 0.72 // 香蕉球慢 → 反應窗較長
+      speed *= d.bananaSlow // 香蕉球更慢、直球更快 → 兩者速度差大，節奏判斷才有張力
       const cdir = -(Math.sign(tx) || (Math.random() < 0.5 ? 1 : -1))
-      aLat = cdir * (16 + 9 * (speed / 24))
+      aLat = cdir * (13 + 9 * (speed / 24)) // 慢球飛行時間長，側向力略收避免飄出畫面太遠
     }
     state.cpuPlan = { tx, ty, speed, aLat }
   }
