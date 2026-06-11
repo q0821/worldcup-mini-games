@@ -5,6 +5,21 @@
 export const GOAL = { halfW: 3.66, height: 2.44, z: 11, postR: 0.06 }
 export const BALL_R = 0.11
 
+// 接觸影（人物 / 球共用準則，見 docs/ball-realism.md）：
+// 越高 → 越大、越模糊、越淡；貼地 → 小而銳利深色。
+// (x, y) 影子中心（目前變換座標系）、r 貼地時的半徑、hN 高度因子 0~1。
+function drawContactShadow(ctx, x, y, r, hN, aspect = 0.26) {
+  ctx.save()
+  if (ctx.filter !== undefined) ctx.filter = `blur(${(1 + hN * 8).toFixed(1)}px)`
+  ctx.globalAlpha *= 0.34 * (1 - hN * 0.7) // 乘上目前 alpha（保留呼叫端的淡出）
+  ctx.fillStyle = '#000'
+  ctx.beginPath()
+  const rr = r * (0.95 + hN * 0.95)
+  ctx.ellipse(x, y, rr, rr * aspect, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
 export function makeCamera(W, H) {
   const K = Math.min(W * 0.8, H * 0.52) // 球門投影寬約 = K px
   const c = 1.75 // 透視強度（越小越誇張）
@@ -260,6 +275,16 @@ export function makeNet() {
 
 export function drawGoalAndNet(ctx, cam, net) {
   const P = (x, y, z) => cam.project(x, y, z)
+  // 視覺垂墜：與門後視角同一公式（頂緣繃緊、底部中央最鬆）
+  const sag = (i, j) => {
+    const span = Math.sin(Math.PI * (i / (net.NX - 1)))
+    const loose = 1 - j / (net.NY - 1)
+    return span * (0.03 + 0.13 * loose)
+  }
+  const NP = (i, j) => {
+    const [x, y, z] = net.node(i, j)
+    return P(x, Math.max(0, y - sag(i, j)), z)
+  }
 
   // ----- 背網網格 -----
   // 透明度壓低：球門頂端落在深色看台前時，密集網線才不會混成一塊灰面板
@@ -268,8 +293,7 @@ export function drawGoalAndNet(ctx, cam, net) {
   for (let j = 0; j < net.NY; j++) {
     ctx.beginPath()
     for (let i = 0; i < net.NX; i++) {
-      const [x, y, z] = net.node(i, j)
-      const p = P(x, y, z)
+      const p = NP(i, j)
       i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
     }
     ctx.stroke()
@@ -277,8 +301,7 @@ export function drawGoalAndNet(ctx, cam, net) {
   for (let i = 0; i < net.NX; i++) {
     ctx.beginPath()
     for (let j = 0; j < net.NY; j++) {
-      const [x, y, z] = net.node(i, j)
-      const p = P(x, y, z)
+      const p = NP(i, j)
       j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
     }
     ctx.stroke()
@@ -510,28 +533,53 @@ export function drawGoalFrameRev(ctx, view) {
 
 // 背網（門後視角前景）：攝影機隔著網看球場。網節點沿用 makeNet 的彈簧位移，
 // 進球時網面朝鏡頭凸起。座標轉換：rev z = GOAL.z - shooterZ。
+// 視覺垂墜（sag）：網布頂緣繃緊、越往下越鬆、中央下垂最多 → 不再是直挺挺的柵欄；
+// 側網把「背網投影比門框寬」交代成 3D 籠子。
 export function drawNetRev(ctx, view, net) {
-  const P = (x, y, zs) => view.project(x, y, GOAL.z - zs)
+  const sag = (i, j) => {
+    const span = Math.sin(Math.PI * (i / (net.NX - 1))) // 中央最鬆
+    const loose = 1 - j / (net.NY - 1) // 底部最鬆、頂緣繃緊
+    return span * (0.03 + 0.13 * loose) // 公尺
+  }
+  const NP = (i, j) => {
+    const [x, y, zs] = net.node(i, j)
+    return view.project(x, Math.max(0, y - sag(i, j)), GOAL.z - zs)
+  }
   ctx.save()
   ctx.lineWidth = 1.4
-  // 橫線
-  ctx.strokeStyle = 'rgba(240,246,250,0.34)'
+
+  // 側網：門柱（z=0）→ 背網側緣，收住左右兩側
+  ctx.strokeStyle = 'rgba(240,246,250,0.24)'
+  for (const iEdge of [0, net.NX - 1]) {
+    const wx = -GOAL.halfW + (2 * GOAL.halfW * iEdge) / (net.NX - 1)
+    for (let j = 0; j < net.NY; j++) {
+      const y = (GOAL.height * j) / (net.NY - 1)
+      const a = view.project(wx, y, 0)
+      const b = NP(iEdge, j)
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+    }
+  }
+
+  // 橫線（含垂墜）：底部線條較淡（門內陰影），頂緣較亮
   for (let j = 0; j < net.NY; j++) {
+    const tone = 0.2 + 0.16 * (j / (net.NY - 1))
+    ctx.strokeStyle = `rgba(240,246,250,${tone.toFixed(2)})`
     ctx.beginPath()
     for (let i = 0; i < net.NX; i++) {
-      const [x, y, zs] = net.node(i, j)
-      const p = P(x, y, zs)
+      const p = NP(i, j)
       i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
     }
     ctx.stroke()
   }
-  // 直線
-  ctx.strokeStyle = 'rgba(240,246,250,0.28)'
+  // 直線（隨橫線的垂墜自然彎曲）
+  ctx.strokeStyle = 'rgba(240,246,250,0.26)'
   for (let i = 0; i < net.NX; i++) {
     ctx.beginPath()
     for (let j = 0; j < net.NY; j++) {
-      const [x, y, zs] = net.node(i, j)
-      const p = P(x, y, zs)
+      const p = NP(i, j)
       j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
     }
     ctx.stroke()
@@ -540,9 +588,8 @@ export function drawNetRev(ctx, view, net) {
   ctx.strokeStyle = 'rgba(240,246,250,0.22)'
   for (let i = 0; i < net.NX; i += 2) {
     const x = -GOAL.halfW + (2 * GOAL.halfW * i) / (net.NX - 1)
-    const [bx, by, bzs] = net.node(i, net.NY - 1)
     const a = view.project(x, GOAL.height, 0)
-    const b = P(bx, by, bzs)
+    const b = NP(i, net.NY - 1)
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.lineTo(b.x, b.y)
@@ -569,11 +616,8 @@ export function drawStriker(ctx, view, st, time) {
   ctx.save()
   ctx.translate(p.x, p.y)
 
-  // 影子
-  ctx.fillStyle = 'rgba(0,0,0,0.28)'
-  ctx.beginPath()
-  ctx.ellipse(0, 0, 0.5 * u, 0.12 * u, 0, 0, Math.PI * 2)
-  ctx.fill()
+  // 影子（貼地 → 小而銳利）
+  drawContactShadow(ctx, 0, 0, 0.5 * u, 0, 0.24)
 
   const M = (mx, my) => [mx * u, -my * u]
   const limb = (x1, y1, x2, y2, w, color) => {
@@ -679,11 +723,9 @@ export function drawKeeperBack(ctx, view, dive, time) {
   ctx.save()
   ctx.globalAlpha = fade
 
-  // 影子
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'
-  ctx.beginPath()
-  ctx.ellipse(px, root.y + u * 0.04, u * 0.46, u * 0.1, 0, 0, Math.PI * 2)
-  ctx.fill()
+  // 影子（撲救飛身時跟著水平位置、隨升高變大變淡變模糊）
+  const lift = Math.max(0, (root.y - py) / u) // 垂直升高（公尺）
+  drawContactShadow(ctx, px, root.y + u * 0.04, u * 0.46, Math.min(1, lift / 1.0), 0.22)
 
   const limb = (x1, y1, x2, y2, w, color) => {
     ctx.strokeStyle = color
@@ -841,11 +883,8 @@ export function drawKeeper(ctx, cam, kp, time) {
     lean = Math.sin(time * 2.2) * 0.045 // 待機微晃
   }
 
-  // 影子
-  ctx.fillStyle = 'rgba(0,0,0,0.28)'
-  ctx.beginPath()
-  ctx.ellipse(dx * u, -2, 0.55 * u, 0.13 * u, 0, 0, Math.PI * 2)
-  ctx.fill()
+  // 影子（撲救躍起時變大變淡變模糊）
+  drawContactShadow(ctx, dx * u, -2, 0.55 * u, Math.min(1, dy / 1.0), 0.24)
 
   ctx.translate(dx * u, -dy * u)
   ctx.rotate(lean)

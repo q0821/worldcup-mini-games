@@ -787,18 +787,23 @@ export function createPkScreen() {
     const kp = state.keeper
     const ballVisible = b && b.z > -1.2
     if (ballVisible) {
-      // 影子（同顛球模式邏輯）：越高 → 越大、越模糊、越淡；貼地 → 小而銳利深色
-      const sh = cam.project(b.x, 0, Math.min(b.z, GOAL.z + 1.4))
-      const rG = Math.max(3, BALL_R * 1.35 * cam.K * sh.s)
-      const hN = clamp(b.y / 2.2, 0, 1)
-      ctx.save()
-      if (ctx.filter !== undefined) ctx.filter = `blur(${(1 + hN * 8).toFixed(1)}px)`
-      ctx.globalAlpha = 0.34 * (1 - hN * 0.7)
-      ctx.fillStyle = '#000'
-      ctx.beginPath()
-      ctx.ellipse(sh.x, sh.y, rG * (0.95 + hN * 0.95), rG * (0.95 + hN * 0.95) * 0.32, 0, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.restore()
+      // 影子（同顛球模式邏輯）：越高 → 越大、越模糊、越淡；貼地 → 小而銳利深色。
+      // 投影 z 與球本體一致（不夾限），射飛 / 入網後影子才會跟著球走；
+      // 過門線後逐漸淡出（網內 / 門後視覺上被遮光）
+      const fadeBehind = clamp(1 - (b.z - GOAL.z) / 1.8, 0, 1)
+      if (fadeBehind > 0.02) {
+        const sh = cam.project(b.x, 0, b.z)
+        const rG = Math.max(3, BALL_R * 1.35 * cam.K * sh.s)
+        const hN = clamp(b.y / 2.2, 0, 1)
+        ctx.save()
+        if (ctx.filter !== undefined) ctx.filter = `blur(${(1 + hN * 8).toFixed(1)}px)`
+        ctx.globalAlpha = 0.34 * (1 - hN * 0.7) * fadeBehind
+        ctx.fillStyle = '#000'
+        ctx.beginPath()
+        ctx.ellipse(sh.x, sh.y, rG * (0.95 + hN * 0.95), rG * (0.95 + hN * 0.95) * 0.32, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
     }
     const ballBehind = b && b.z > KEEPER_Z
     if (ballVisible && ballBehind) paintBallFwd(b)
