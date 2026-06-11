@@ -355,7 +355,7 @@ export function makeRevView(W, H) {
   }
 }
 
-export function renderBackgroundRev(view, dpr) {
+export function renderBackgroundRev(view, dpr, standsImg = null) {
   const { W, H, horizonY, baseY, groundY } = view
   const cv = document.createElement('canvas')
   cv.width = Math.round(W * dpr)
@@ -363,8 +363,20 @@ export function renderBackgroundRev(view, dpr) {
   const g = cv.getContext('2d')
   g.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  // 遠端看台（罰球點後方）
-  drawStands(g, W, horizonY)
+  // 遠端看台（罰球點後方）：有 AI 看台圖則用圖（cover 進地平線以上），否則程序繪製
+  if (standsImg) {
+    const region = horizonY + 2
+    const ir = standsImg.width / standsImg.height
+    let dw = W
+    let dh = dw / ir
+    if (dh < region) {
+      dh = region
+      dw = dh * ir
+    }
+    g.drawImage(standsImg, (W - dw) / 2, region - dh, dw, dh)
+  } else {
+    drawStands(g, W, horizonY)
+  }
 
   // 草皮條紋（由遠到近：z 大 → 小）
   const Z_MIN = -2.2

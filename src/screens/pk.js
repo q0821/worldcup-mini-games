@@ -172,7 +172,7 @@ export function createPkScreen() {
     cam = makeCamera(W, H)
     rev = makeRevView(W, H)
     bgFwd = renderBackground(cam, dpr, standsImg)
-    bgRev = renderBackgroundRev(rev, dpr)
+    bgRev = renderBackgroundRev(rev, dpr, standsImg)
     crowdFwd = makeCrowd(W, cam.horizonY)
     crowdRev = makeCrowd(W, rev.horizonY)
     crowdLayer.width = canvas.width
@@ -195,7 +195,10 @@ export function createPkScreen() {
     const img = new Image()
     img.onload = () => {
       standsImg = img
-      if (cam) bgFwd = renderBackground(cam, dpr, standsImg)
+      if (cam) {
+        bgFwd = renderBackground(cam, dpr, standsImg)
+        bgRev = renderBackgroundRev(rev, dpr, standsImg)
+      }
     }
     img.src = 'assets/bg/pk-stands.webp'
   }
@@ -672,7 +675,7 @@ export function createPkScreen() {
 
   function renderShooterView() {
     ctx.drawImage(bgFwd, 0, 0, W, H)
-    if (!standsImg) paintCrowd(crowdFwd) // AI 看台圖時不疊
+    paintCrowd(crowdFwd) // 動態觀眾疊在 AI 看台圖（或程序看台）上
     drawGoalAndNet(ctx, cam, state.net)
 
     const b = state.ball
