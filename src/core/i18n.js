@@ -53,6 +53,15 @@ const DICT = {
     pkCpuMissed: '對方射偏！',
     pkWin: '你贏了！',
     pkLose: '你輸了',
+    // 嘴砲訊息池（隨機取一句）
+    pkMsgGoal: ['得分！', 'Goal~', '球進啦！', '漂亮！', '門將只能撿球', '這球沒救', '咻～進了', '送進去囉'],
+    pkMsgGoalClutch: ['救世主！', '英雄誕生！', '一球定江山！', '帶你回家！', '名留青史的一球'],
+    pkMsgPost: ['中柱！', '門框在保佑門將', '差幾公分', '柱仔擋的', '運氣站在門將那邊'],
+    pkMsgSaved: ['可惜', '被擋了', '門將今天有練過', '差一步', '撲到了…', '門將比你想得聰明'],
+    pkMsgOver: ['射飛了！', '太陽都被你射下來了', '你是嫦娥要奔月嗎？', '火箭起飛', 'To the Moon~', '這球給太空人接', '球呢？喔在雲上', '高射砲', '踢到外太空了', '裁判看不到球了'],
+    pkMsgSave: ['神撲！', '擋的好', 'SGGK 是你！', '銅牆鐵壁', '這你也擋得到？！', '手套會發光', '人牆？不，是人牆王', '門線守護神', '今天不讓你進'],
+    pkMsgConcede: ['再來再來', '差一點', '不要亂猜啊！', '撲了個寂寞', '門將的浪漫', '下次一定', '撲錯邊了啦', '球比你快一步'],
+    pkMsgCpuMissed: ['對方射飛！', '謝謝賞球', '門將不用動', '對方腳滑？', '送你一條好球'],
 
     hdReady: '準備好了嗎？',
     hdHowto: '球從左右兩側傳中飛入，左右擺頭把「頂球點」對到球，往上一頂把球頂進上方球門！',
@@ -67,6 +76,7 @@ const DICT = {
     hdGo: '開始',
     hdGoal: '進球！',
     hdMiss: '漏接！',
+    hdNoGoal: '沒進',
     hdTime: '時間',
     hdHeadHint: '擺頭撞球，朝球門頂出！',
 
@@ -129,6 +139,14 @@ const DICT = {
     pkCpuMissed: 'CPU missed!',
     pkWin: 'You win!',
     pkLose: 'You lose',
+    pkMsgGoal: ['GOAL!', 'Score!', 'Top bins!', 'Lovely!', 'Keeper had no chance', 'Back of the net!', 'Easy money'],
+    pkMsgGoalClutch: ['CLUTCH!', 'A hero is born!', 'Ice in the veins!', 'Sends you home!', 'One for the ages'],
+    pkMsgPost: ['Off the post!', 'Woodwork saves the keeper', 'Inches away', 'Crossbar challenge'],
+    pkMsgSaved: ['So close', 'Saved!', "Keeper's been practising", 'Denied', 'Got a glove to it'],
+    pkMsgOver: ['Blazed over!', 'Launched it to the moon', 'Houston, we have a ball', 'Into orbit', 'To the Moon~', 'Row Z special', 'Aiming for the stars?', 'Anti-aircraft shot'],
+    pkMsgSave: ['What a save!', 'Great hands!', 'Wall of steel', 'You got THAT?!', 'Spider-keeper', 'Not today!', 'Line guardian'],
+    pkMsgConcede: ['Try again', 'Almost', 'Stop guessing!', 'Dove the wrong way', 'So close', 'Next one for sure'],
+    pkMsgCpuMissed: ['CPU missed!', 'Thanks for that', "Didn't even move", 'Free gift', 'Right at you'],
 
     hdReady: 'Ready?',
     hdHowto: 'Crosses fly in from the sides — move your head left/right to meet the ball, then nod up to head it into the goal!',
@@ -143,6 +161,7 @@ const DICT = {
     hdGo: 'Start',
     hdGoal: 'GOAL!',
     hdMiss: 'Missed!',
+    hdNoGoal: 'No goal',
     hdTime: 'Time',
     hdHeadHint: 'Swing your head to head it goalward!',
 
@@ -167,6 +186,13 @@ function detectLang() {
 
 export function t(key) {
   return DICT[lang][key] ?? DICT.en[key] ?? key
+}
+
+// 值若是陣列 → 隨機取一句（給嘴砲訊息池用）
+export function tRandom(key) {
+  const v = DICT[lang][key] ?? DICT.en[key] ?? key
+  if (Array.isArray(v)) return v[(Math.random() * v.length) | 0]
+  return v
 }
 
 export function getLang() {

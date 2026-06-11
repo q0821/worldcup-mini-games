@@ -11,7 +11,7 @@
 //   電腦球速隨機、也可能直接射飛。
 // 標準 5 球制 + 提前判定 + 驟死賽。物理採公尺制（重力 / Magnus）。
 
-import { t } from '../core/i18n.js'
+import { t, tRandom } from '../core/i18n.js'
 import { sound } from '../core/sound.js'
 import { showScreen } from '../core/screens.js'
 import { icons } from '../core/icons.js'
@@ -505,7 +505,7 @@ export function createPkScreen() {
       b.aLat = 0
       sound.postHit()
       state.shake = 0.5
-      showMsg(t('pkHitPost'), 'bad')
+      showMsg(tRandom('pkMsgPost'), 'bad')
       record('miss')
       return
     }
@@ -513,7 +513,7 @@ export function createPkScreen() {
     const inGoal = Math.abs(cx) < GOAL.halfW - 0.06 && cy < GOAL.height - 0.06
     if (!inGoal) {
       b.aLat = 0
-      showMsg(state.overMsg || t('pkOffTarget'), 'bad')
+      showMsg(tRandom('pkMsgOver'), 'bad')
       record('miss')
       return
     }
@@ -528,11 +528,15 @@ export function createPkScreen() {
       b.aLat = 0
       sound.thud()
       state.shake = 0.35
-      showMsg(t('pkSavedByCpu'), 'bad')
+      showMsg(tRandom('pkMsgSaved'), 'bad')
       record('miss')
     } else {
       b.isGoal = true
-      showMsg(t('pkGoalScored'), 'good')
+      // 決勝球偵測：這球進後電腦追不上 → 救世主
+      const pG = goals(state.pRes) + 1
+      const cLeft = state.sudden ? 0 : 5 - state.cRes.length
+      const clutch = state.sudden || pG > goals(state.cRes) + cLeft
+      showMsg(tRandom(clutch ? 'pkMsgGoalClutch' : 'pkMsgGoal'), 'good')
       sound.crowd(1.6, 0.35)
       sound.point()
       record('goal')
@@ -546,7 +550,7 @@ export function createPkScreen() {
 
     if (!inGoal) {
       b.aLat = 0
-      showMsg(t('pkCpuMissed'), 'good')
+      showMsg(tRandom('pkMsgCpuMissed'), 'good')
       record('miss')
       return
     }
@@ -559,11 +563,11 @@ export function createPkScreen() {
       b.aLat = 0
       sound.thud()
       state.shake = 0.35
-      showMsg(t('pkYouSaved'), 'good')
+      showMsg(tRandom('pkMsgSave'), 'good')
       record('miss')
     } else {
       b.isGoal = true
-      showMsg(t('pkConceded'), 'bad')
+      showMsg(tRandom('pkMsgConcede'), 'bad')
       sound.swish()
       record('goal')
     }

@@ -315,9 +315,8 @@ export function createHeaderScreen() {
           }
         }
       }
-      // 飛出畫面 → 沒接到
+      // 飛出畫面 → 沒接到（不顯示訊息，只有你主動頂球後才報進/沒進，避免每球洗版）
       if (b.x + b.r < -30 || b.x - b.r > W + 30 || b.y - b.r > H + 30) {
-        if (!b.headed) showMsg(t('hdMiss'), 'bad')
         serve()
       }
     } else if (b.phase === 'out') {
@@ -343,7 +342,7 @@ export function createHeaderScreen() {
           sound.point()
           sound.crowd(1.0, 0.25)
         } else {
-          showMsg(t('hdMiss'), 'bad')
+          showMsg(t('hdNoGoal'), 'bad') // 頂到了但沒進
         }
         serve()
       }
