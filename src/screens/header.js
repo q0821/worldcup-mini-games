@@ -128,6 +128,8 @@ export function createHeaderScreen() {
     ball: null,
     msgT: 0,
     flash: 0,
+    flashX: 0,
+    flashY: 0,
     contactCd: 0,
   }
 
@@ -217,6 +219,8 @@ export function createHeaderScreen() {
     b.sqv += 6
     b.squashAngle = Math.atan2(b.y1 - b.y0, b.x1 - b.x0)
     state.flash = 0.12
+    state.flashX = b.x0 // 閃光定在頂球接觸點（局部光暈，不做全螢幕閃白）
+    state.flashY = b.y0
     sound.kick()
   }
 
@@ -453,9 +457,18 @@ export function createHeaderScreen() {
       })
     }
 
+    // 頂球閃光：接觸點局部光暈（全螢幕閃白會刺眼）
     if (state.flash > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${(state.flash / 0.12) * 0.18})`
-      ctx.fillRect(0, 0, W, H)
+      const a = state.flash / 0.12
+      const fr = Math.min(W, H) * 0.2 * (1.8 - a)
+      const glow = ctx.createRadialGradient(state.flashX, state.flashY, 0, state.flashX, state.flashY, fr)
+      glow.addColorStop(0, `rgba(255,255,255,${0.55 * a})`)
+      glow.addColorStop(0.5, `rgba(255,255,255,${0.2 * a})`)
+      glow.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = glow
+      ctx.beginPath()
+      ctx.arc(state.flashX, state.flashY, fr, 0, Math.PI * 2)
+      ctx.fill()
     }
 
     // 角落自拍小框（攝影機模式）
@@ -470,12 +483,13 @@ export function createHeaderScreen() {
     const topY = goal.baseY - goal.h
     const botY = goal.baseY
     const post = Math.max(5, goal.halfW * 0.05)
-    // 網子深度（往畫面內 = 略收窄 + 背板抬高）。淺一點、不要太斜，像一般球門。
-    const depth = goal.h * 0.45
-    const bx0 = x0 + depth * 0.5
-    const bx1 = x1 - depth * 0.5
-    const bTop = topY + depth * 0.12 // 背板頂略低於橫楣
-    const bBot = botY - depth * 0.95 // 背板底抬高（網往後落地）
+    // 網子深度：正面視角的背網只有「輕微」透視內縮——
+    // 頂邊略低於橫楣、底邊略高於門線、左右略收。
+    // （先前底邊抬高 0.43 倍門高，看起來像整片網往天上翹）
+    const bx0 = x0 + goal.halfW * 0.08
+    const bx1 = x1 - goal.halfW * 0.08
+    const bTop = topY + goal.h * 0.07 // 背板頂略低於橫楣（往後遠 → 略低）
+    const bBot = botY - goal.h * 0.12 // 背板底略高於門線（往後遠 → 略高）
 
     // 球門線（橫貫草地，定錨球門）
     ctx.strokeStyle = 'rgba(250,250,248,0.5)'

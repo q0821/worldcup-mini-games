@@ -32,6 +32,15 @@ cardBg.onload = () => {
 cardBg.src = 'assets/bg/pk-night.webp'
 const CARD_BG_CUT = 0.495 // 圖中草地分界線比例（與 pk.js 同一實測值）
 
+// OG 橫式底圖（1200×630 用橫式夜景）
+const ogBg = new Image()
+let ogBgReady = false
+ogBg.onload = () => {
+  ogBgReady = true
+}
+ogBg.src = 'assets/bg/pk-night-l.webp'
+const OG_BG_CUT = 0.518
+
 function unitText(mode, n) {
   const tpl = t('shareUnit')
   const s = (tpl && tpl[MODE_META[mode].unitKey]) || '{n}'
@@ -276,7 +285,7 @@ export function bindShare(btn, mode, score) {
 }
 
 // 通用 OG 預覽圖（1200×630 橫式），給社群分享網址時的 og:image。
-// 在瀏覽器 render 後輸出存成 public/og.png（一次性資產）。
+// 在瀏覽器 render 後輸出存成 public/og.jpg（一次性資產）。夜間世界盃風與圖卡一致。
 export function renderOgCanvas(canonicalUrl = SITE_URL) {
   const W = 1200
   const H = 630
@@ -285,41 +294,91 @@ export function renderOgCanvas(canonicalUrl = SITE_URL) {
   cv.height = H
   const ctx = cv.getContext('2d')
 
-  const bg = ctx.createLinearGradient(0, 0, 0, H)
-  bg.addColorStop(0, '#0c3b6e')
-  bg.addColorStop(0.5, '#1f6fb0')
-  bg.addColorStop(0.5, '#2f8b3d')
-  bg.addColorStop(1, '#1c5c28')
-  ctx.fillStyle = bg
+  // 底圖：橫式夜景球場（草地線對齊 ~60% 高），未載入退回夜色漸層
+  if (ogBgReady) {
+    const sw = ogBg.width
+    const sh = (sw * H) / W
+    const boundary = ogBg.height * OG_BG_CUT
+    const sy = Math.max(0, Math.min(ogBg.height - sh, boundary - sh * 0.6))
+    ctx.drawImage(ogBg, 0, sy, sw, sh, 0, 0, W, H)
+  } else {
+    const bg = ctx.createLinearGradient(0, 0, 0, H)
+    bg.addColorStop(0, '#060b18')
+    bg.addColorStop(0.6, '#16233f')
+    bg.addColorStop(0.6, '#2c6e38')
+    bg.addColorStop(1, '#1d5228')
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, W, H)
+  }
+
+  // 可讀性疊層：左深右淺 + 上下收邊
+  const ov = ctx.createLinearGradient(0, 0, W, 0)
+  ov.addColorStop(0, 'rgba(5,9,20,0.82)')
+  ov.addColorStop(0.55, 'rgba(5,9,20,0.45)')
+  ov.addColorStop(1, 'rgba(5,9,20,0.25)')
+  ctx.fillStyle = ov
   ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = 'rgba(255,255,255,0.04)'
-  for (let i = 0; i < 6; i += 2) ctx.fillRect(0, H * 0.5 + (i * H * 0.5) / 6, W, (H * 0.5) / 6)
+  const ov2 = ctx.createLinearGradient(0, 0, 0, H)
+  ov2.addColorStop(0, 'rgba(5,9,20,0.35)')
+  ov2.addColorStop(0.5, 'rgba(5,9,20,0)')
+  ov2.addColorStop(1, 'rgba(5,9,20,0.5)')
+  ctx.fillStyle = ov2
+  ctx.fillRect(0, 0, W, H)
+
+  // 左上金色斜切裝飾條（轉播風）
+  ctx.fillStyle = '#ffd33d'
+  ctx.beginPath()
+  ctx.moveTo(80, 128)
+  ctx.lineTo(96, 128)
+  ctx.lineTo(88, 168)
+  ctx.lineTo(72, 168)
+  ctx.closePath()
+  ctx.fill()
 
   // 左側文字
   ctx.textAlign = 'left'
   ctx.fillStyle = '#fff'
   ctx.font = '800 92px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.shadowColor = 'rgba(0,0,0,0.35)'
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
   ctx.shadowOffsetY = 5
-  ctx.fillText(t('appTitle'), 80, 250)
+  ctx.shadowBlur = 14
+  ctx.fillText(t('appTitle'), 112, 250)
+  ctx.shadowBlur = 0
   ctx.shadowColor = 'transparent'
   ctx.shadowOffsetY = 0
-  ctx.fillStyle = 'rgba(255,255,255,0.92)'
+  ctx.fillStyle = 'rgba(255,255,255,0.94)'
   ctx.font = '600 40px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.fillText(t('tagline'), 82, 320)
-  // 三模式
-  ctx.fillStyle = 'rgba(255,255,255,0.85)'
-  ctx.font = '600 34px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.fillText(`${t('mode1Title')}  ·  ${t('mode2Title')}  ·  ${t('mode3Title')}`, 82, 400)
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'
+  ctx.shadowOffsetY = 3
+  ctx.fillText(t('tagline'), 114, 322)
+  // 三模式（金色點隔開）
+  ctx.fillStyle = 'rgba(255,211,61,0.95)'
+  ctx.font = '700 34px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(`${t('mode1Title')}  ·  ${t('mode2Title')}  ·  ${t('mode3Title')}`, 114, 396)
+  ctx.shadowColor = 'transparent'
+  ctx.shadowOffsetY = 0
 
-  // 右側：大足球 + QR
-  drawBall(ctx, { cx: 880, cy: 240, r: 150 })
+  // 右側：大足球（光暈）+ QR
+  ctx.save()
+  ctx.shadowColor = 'rgba(255,255,255,0.3)'
+  ctx.shadowBlur = 60
+  drawBall(ctx, { cx: 920, cy: 230, r: 150 })
+  ctx.restore()
   const qs = 150
-  drawQR(ctx, canonicalUrl, 1010, 430, qs)
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'
+  ctx.shadowOffsetY = 5
+  ctx.shadowBlur = 16
+  drawQR(ctx, canonicalUrl, 1000, 430, qs)
+  ctx.restore()
   ctx.textAlign = 'center'
   ctx.fillStyle = '#fff'
   ctx.font = '700 26px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.fillText(t('shareScanCta'), 1010 + qs / 2, 430 + qs + 36)
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'
+  ctx.shadowOffsetY = 3
+  ctx.fillText(t('shareScanCta'), 1000 + qs / 2, 430 + qs + 36)
+  ctx.shadowColor = 'transparent'
+  ctx.shadowOffsetY = 0
 
   return cv
 }
