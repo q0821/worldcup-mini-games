@@ -730,7 +730,7 @@ const KEEPER_SPRITE = {
 
 // 對手門將（射手回合，正面、金黃球衣）
 const KEEPER_FRONT_SPRITE = {
-  src: 'assets/sprites/keeper-front.webp',
+  src: 'assets/sprites/keeper-front.webp?v=2', // v=2：修掉雙臂間封閉白底（檔名不變需破快取）
   img: null,
   poses: {
     idle: { x: 8, y: 267, w: 318, h: 409, hM: 1.35, ax: 0.5, ay: 0.99 },
