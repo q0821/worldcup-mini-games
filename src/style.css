@@ -115,6 +115,31 @@ body {
 .card.soon::after {
   content: '';
 }
+.home-footer {
+  margin: 26px auto 0;
+  max-width: 480px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.home-footer a {
+  color: #fff;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.32);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.home-footer a:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
 .badge-soon {
   position: absolute;
   top: 12px;
@@ -227,20 +252,20 @@ body {
 }
 
 /* ---------- PK 大賽 HUD ---------- */
+/* 計分板靠左上角，避免門將視角擋住中央的射手 */
 .pk-board {
   position: absolute;
-  top: calc(58px + var(--safe-top));
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(10, 22, 14, 0.55);
+  top: calc(56px + var(--safe-top));
+  left: 12px;
+  background: rgba(10, 22, 14, 0.5);
   backdrop-filter: blur(4px);
   border-radius: 12px;
-  padding: 8px 14px;
+  padding: 7px 12px;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 .pk-board .row {
   display: flex;
