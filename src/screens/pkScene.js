@@ -134,21 +134,48 @@ function drawStands(g, W, horizonY) {
   g.fillStyle = 'rgba(255,255,255,0.18)'
   g.fillRect(0, mid - 1, W, 2)
 
-  // 群眾（隨機色點，下層較大較密）
-  const palette = ['#d9c8b1', '#c75d4f', '#5d7fb3', '#dadada', '#caa64f', '#6da06b', '#8d6fae', '#3f3f3f']
-  const n = Math.min(2600, W * 4)
-  for (let i = 0; i < n; i++) {
-    const lower = Math.random() < 0.55
-    const y = lower ? mid + Math.random() * (horizonY - mid) : tierTop + Math.random() * (mid - tierTop)
-    const size = (lower ? 1.6 : 1.1) + Math.random() * 1.2
-    g.fillStyle = palette[(Math.random() * palette.length) | 0]
-    g.globalAlpha = 0.75 + Math.random() * 0.25
-    g.fillRect(Math.random() * W, y, size, size * 1.25)
-  }
-  g.globalAlpha = 1
+  // 觀眾不在此烤入；改由 makeCrowd / drawCrowd 動態繪製（可歡呼跳動 / 坐下）
   // 看台前緣牆
   g.fillStyle = '#2f3a50'
   g.fillRect(0, horizonY - 4, W, 4)
+}
+
+// ---------- 動態觀眾（模糊小色點，進球歡呼跳動、沒進往下坐） ----------
+const CROWD_PALETTE = ['#d9c8b1', '#c75d4f', '#5d7fb3', '#dadada', '#caa64f', '#6da06b', '#8d6fae', '#cfcfcf']
+
+// 依看台兩層幾何（與 drawStands 一致）產生觀眾座標。
+export function makeCrowd(W, horizonY) {
+  const tierTop = horizonY * 0.16
+  const mid = horizonY * 0.6
+  const list = []
+  const n = Math.min(1400, Math.floor(W * 2.2))
+  for (let i = 0; i < n; i++) {
+    const lower = Math.random() < 0.55
+    const y = lower ? mid + Math.random() * (horizonY - mid) : tierTop + Math.random() * (mid - tierTop)
+    list.push({
+      x: Math.random() * W,
+      y,
+      size: (lower ? 1.8 : 1.2) + Math.random() * 1.3,
+      lower,
+      ph: Math.random() * Math.PI * 2,
+      col: CROWD_PALETTE[(Math.random() * CROWD_PALETTE.length) | 0],
+      a: 0.7 + Math.random() * 0.3,
+    })
+  }
+  return list
+}
+
+// 把觀眾畫到指定 ctx（原始小色點；模糊由呼叫端對整批一次套用以省效能）。
+// anim: { cheer (0..1 歡呼跳動), sink (0..1 往下坐), time }
+export function drawCrowd(ctx, crowd, anim) {
+  for (const s of crowd) {
+    let dy = anim.sink * (s.lower ? 7 : 5) // 沒進 → 往下坐
+    if (anim.cheer > 0) dy -= Math.abs(Math.sin(anim.time * 9 + s.ph)) * (s.lower ? 8 : 6) * anim.cheer // 歡呼跳動
+    ctx.globalAlpha = s.a
+    ctx.fillStyle = s.col
+    ctx.fillRect(s.x, s.y + dy, s.size, s.size * 1.3)
+  }
+  ctx.globalAlpha = 1
 }
 
 function drawHoardings(g, cam) {

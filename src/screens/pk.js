@@ -32,6 +32,8 @@ import {
   drawGoalFrameRev,
   drawStriker,
   drawGloves,
+  makeCrowd,
+  drawCrowd,
 } from './pkScene.js'
 
 const G = 9.81
@@ -122,6 +124,11 @@ export function createPkScreen() {
   let bgFwd = null
   let bgRev = null
   let standsImg = null
+  let crowdFwd = null
+  let crowdRev = null
+  const crowdAnim = { cheer: 0, sink: 0, time: 0 } // 觀眾情緒：歡呼跳動 / 往下坐
+  const crowdLayer = document.createElement('canvas') // 離屏圖層，整批觀眾模糊一次
+  const crowdCtx = crowdLayer.getContext('2d')
 
   const state = {
     raf: 0,
@@ -168,6 +175,22 @@ export function createPkScreen() {
     rev = makeRevView(W, H)
     bgFwd = renderBackground(cam, dpr, standsImg)
     bgRev = renderBackgroundRev(rev, dpr)
+    crowdFwd = makeCrowd(W, cam.horizonY)
+    crowdRev = makeCrowd(W, rev.horizonY)
+    crowdLayer.width = canvas.width
+    crowdLayer.height = canvas.height
+    crowdCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }
+
+  // 觀眾：畫到離屏層、再對整批一次模糊貼到主畫布（省效能、避免逐方塊 filter）
+  function paintCrowd(crowd) {
+    if (!crowd) return
+    crowdCtx.clearRect(0, 0, W, H)
+    drawCrowd(crowdCtx, crowd, crowdAnim)
+    ctx.save()
+    if (ctx.filter !== undefined) ctx.filter = 'blur(0.8px)'
+    ctx.drawImage(crowdLayer, 0, 0, W, H)
+    ctx.restore()
   }
 
   {
@@ -241,6 +264,14 @@ export function createPkScreen() {
     msgEl.textContent = text
     msgEl.className = 'pk-msg show ' + tone
     state.msgT = 1.3
+    // 觀眾反應：好事 → 歡呼跳動；壞事 → 往下坐
+    if (tone === 'good') {
+      crowdAnim.cheer = 1
+      crowdAnim.sink = 0
+    } else if (tone === 'bad') {
+      crowdAnim.sink = 1
+      crowdAnim.cheer = 0
+    }
   }
   function setHint(text) {
     hintEl.textContent = text || ''
@@ -658,6 +689,7 @@ export function createPkScreen() {
 
   function renderShooterView() {
     ctx.drawImage(bgFwd, 0, 0, W, H)
+    if (!standsImg) paintCrowd(crowdFwd) // AI 看台圖時不疊
     drawGoalAndNet(ctx, cam, state.net)
 
     const b = state.ball
@@ -700,6 +732,7 @@ export function createPkScreen() {
 
   function renderKeeperView() {
     ctx.drawImage(bgRev, 0, 0, W, H)
+    paintCrowd(crowdRev)
 
     if (state.striker) drawStriker(ctx, rev, state.striker, state.time)
 
@@ -784,6 +817,10 @@ export function createPkScreen() {
       state.time += dt
       state.net.update(dt)
     }
+    // 觀眾情緒（不分階段都推進）：歡呼慢衰減、坐下快回復
+    crowdAnim.time += dt
+    crowdAnim.cheer = Math.max(0, crowdAnim.cheer - dt * 0.5)
+    crowdAnim.sink = Math.max(0, crowdAnim.sink - dt * 1.2)
     render()
   }
 
