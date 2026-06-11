@@ -54,7 +54,7 @@ const DICT = {
     pkLose: '你輸了',
 
     hdReady: '準備好了嗎？',
-    hdHowto: '用頭把飛來的球頂進上方球門。球往上頂要「真的把頭往上送」才有力道！',
+    hdHowto: '球從左右兩側傳中飛入，左右擺頭把「頂球點」對到球，往上一頂把球頂進上方球門！',
     hdCamNote: '建議開啟攝影機，用真實頭部動作來玩。畫面只在本機處理、不會上傳。',
     hdUseCam: '開攝影機玩',
     hdUsePointer: '用手指 / 滑鼠玩',
@@ -123,7 +123,7 @@ const DICT = {
     pkLose: 'You lose',
 
     hdReady: 'Ready?',
-    hdHowto: 'Head the incoming ball into the goal above. To send it up, actually push your head upward for power!',
+    hdHowto: 'Crosses fly in from the sides — move your head left/right to meet the ball, then nod up to head it into the goal!',
     hdCamNote: 'We recommend the camera so you can play with real head movement. Video stays on your device and is never uploaded.',
     hdUseCam: 'Play with camera',
     hdUsePointer: 'Play with finger / mouse',
