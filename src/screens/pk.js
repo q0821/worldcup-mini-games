@@ -41,6 +41,11 @@ const KEEPER_Z = 10.8
 const DIVE_DUR = 0.42
 const RUN_DUR = 0.8
 const AIM_WAIT = 1.2 // 門將回合：射手起跑前的等待
+// 三段擺動箭頭：方向 → 力道 → 曲度
+const MAX_DIR = 0.62 // 方向擺動最大角 (rad，約 35°)
+const DIR_HZ = 0.85 // 方向擺動頻率
+const CURVE_HZ = 0.9 // 曲度擺動頻率
+const MAX_LAT = 22 // 香蕉球最大側向加速度
 
 const DIFFS = {
   easy: {
@@ -97,21 +102,12 @@ export function createPkScreen() {
     <div class="pk-kicklabel" id="kicklabel"></div>
     <div class="pk-msg" id="msg"></div>
     <div class="pk-hint" id="hint"></div>
-    <div class="pk-meter" id="meter"><div class="zone" id="sweet"></div><i id="cursor"></i></div>
-    <div class="pk-types" id="types">
-      <button data-type="straight" class="on">${t('pkStraight')}</button>
-      <button data-type="banana">${t('pkBanana')}</button>
-    </div>
   `
   el.appendChild(hud)
 
   const $ = (id) => hud.querySelector('#' + id)
   const msgEl = $('msg')
   const hintEl = $('hint')
-  const meterEl = $('meter')
-  const sweetEl = $('sweet')
-  const cursorEl = $('cursor')
-  const typesEl = $('types')
   const kickLabel = $('kicklabel')
 
   // ---------- 畫布 / 投影 ----------
@@ -145,10 +141,12 @@ export function createPkScreen() {
     net: makeNet(),
     keeper: null, // 電腦門將（射手回合）
     striker: null, // 射手人物（門將回合）
-    aimPoint: null, // 射手準星 { x, y }（球門平面世界座標）
-    ballType: 'straight',
-    meter: { ph: 0, v: 0 },
-    shot: null, // { tx, ty, T, speed, banana }
+    // 三段擺動箭頭
+    arrow: { ph: 0, dir: 0, power: 0, curve: 0 },
+    lockedDir: 0,
+    lockedPower: 0,
+    lockedCurve: 0,
+    shot: null, // { tx, ty, T, speed }
     shotQuality: null, // weak | perfect | over
     cpuPlan: null,
     redCircle: null, // 門將回合：來球落點 { x, y }
@@ -285,23 +283,12 @@ export function createPkScreen() {
     state.sudden = false
     hideOverlay()
     sound.whistle(1)
-    // 力道條外觀：弱(藍) → 強(橘) → 完美(黃) → 過大(紅)
-    const [lo, hi] = state.diff.sweet
-    sweetEl.style.left = `${lo * 100}%`
-    sweetEl.style.width = `${(hi - lo) * 100}%`
-    meterEl.style.background = `linear-gradient(90deg,
-      rgba(105,192,255,0.8) 0%,
-      rgba(255,157,61,0.85) ${lo * 100}%,
-      rgba(255,157,61,0.85) ${hi * 100}%,
-      rgba(231,76,60,0.9) ${hi * 100}%,
-      rgba(231,76,60,0.9) 100%)`
     setupKick()
   }
 
   function setupKick() {
     const taken = state.pRes.length + state.cRes.length
     state.playerShoots = taken % 2 === 0
-    state.aimPoint = null
     state.shot = null
     state.shotQuality = null
     state.cpuPlan = null
@@ -311,7 +298,7 @@ export function createPkScreen() {
     state.netHit = false
     state.kickFlash = 0
     state.overMsg = null
-    meterEl.classList.remove('show')
+    state.arrow.ph = 0
     renderBoard()
 
     if (state.playerShoots) {
@@ -327,9 +314,8 @@ export function createPkScreen() {
         reach: 0,
       }
       state.striker = null
-      state.phase = 'aim'
-      setHint(t('pkPickZone'))
-      typesEl.classList.add('show')
+      state.phase = 'aimDir' // 第一段：左右擺動定方向
+      setHint(t('pkAimDir'))
     } else {
       state.ball = newBall(false)
       state.keeper = null
@@ -337,7 +323,6 @@ export function createPkScreen() {
       state.phase = 'keepAim'
       state.phaseT = 0
       setHint(t('pkPickSide'))
-      typesEl.classList.remove('show')
       prepareCpuShot()
     }
   }
@@ -348,7 +333,6 @@ export function createPkScreen() {
     renderBoard()
     state.phase = 'between'
     state.phaseT = 0
-    meterEl.classList.remove('show')
   }
 
   function endMatch() {
@@ -361,66 +345,62 @@ export function createPkScreen() {
     showOverlay(endOverlay(win))
   }
 
-  // ---------- 射手回合 ----------
-  function pickAim(sx, sy) {
-    const p = cam.unprojectGoal(sx, sy)
-    // 需點在球門附近（含柱邊緣一點容差），太離譜的點忽略
-    if (p.y < -0.4 || p.y > 3.6 || Math.abs(p.x) > 5) return
-    state.aimPoint = { x: clamp(p.x, -3.5, 3.5), y: clamp(p.y, 0.12, 2.32) }
-    sound.click()
-    state.phase = 'power'
-    state.meter.ph = 0
-    meterEl.classList.add('show')
-    setHint(t('pkLockPower'))
+  // ---------- 射手回合：三段擺動箭頭（點擊鎖定）----------
+  // 點一下 → 鎖定當前擺動值，進下一段；第三段鎖定後直接射出。
+  function advanceAim() {
+    if (state.phase === 'aimDir') {
+      state.lockedDir = state.arrow.dir
+      sound.click()
+      state.phase = 'aimPower'
+      state.arrow.ph = 0
+      setHint(t('pkLockPower'))
+    } else if (state.phase === 'aimPower') {
+      state.lockedPower = state.arrow.power
+      sound.click()
+      state.phase = 'aimCurve'
+      state.arrow.ph = 0
+      setHint(t('pkAimCurve'))
+    } else if (state.phase === 'aimCurve') {
+      state.lockedCurve = state.arrow.curve
+      setHint('')
+      playerFire(state.lockedDir, state.lockedPower, state.lockedCurve)
+    }
   }
 
-  function lockPower() {
-    const v = state.meter.v
-    meterEl.classList.remove('show')
-    typesEl.classList.remove('show')
-    setHint('')
-    playerFire(v)
-  }
-
-  function playerFire(powerV) {
+  function playerFire(dirAngle, powerV, curveV) {
     const d = state.diff
     const [lo, hi] = d.sweet
-    const banana = state.ballType === 'banana'
-    let tx = state.aimPoint.x
-    let ty = state.aimPoint.y
+    let tx = (dirAngle / MAX_DIR) * 4.6 // 方向角 → 球門平面落點 x（±4.6，比球門寬可射偏）
+    let ty = 1.05 // 方向只決定左右，高度固定（力道過大才會飛高）
     let speed
     let quality
 
     if (powerV > hi) {
-      // 力道過大 → 射飛：超出越多偏越多
       const over = (powerV - hi) / (1 - hi)
       quality = 'over'
-      ty += 0.8 + over * 2.2
-      tx *= 1 + over * 0.5
+      ty += 0.8 + over * 2.0
+      tx *= 1 + over * 0.35
       speed = 25 + over * 4
       state.overMsg = t('pkTooStrong')
     } else if (powerV >= lo) {
-      // 完美力道：快、準
       quality = 'perfect'
-      speed = banana ? 21 : 23.5
+      speed = 23.5
       tx += gauss() * 0.15
-      ty += gauss() * 0.12
     } else {
-      // 力道不足：bar 越左球越慢（連續），下沉、誤差大
-      const w = powerV / lo // 0..1
+      const w = powerV / lo
       quality = 'weak'
       speed = 10 + 14 * Math.pow(w, 1.4)
-      ty = Math.max(0.15, ty * (0.55 + 0.45 * w))
+      ty = Math.max(0.2, ty * (0.5 + 0.5 * w))
       tx += gauss() * 0.3
     }
-    if (banana) speed -= 1.5 // 香蕉球速度差
+    const aLat = curveV * MAX_LAT // 曲度 → 連續側向加速度（左彎 / 直 / 右彎）
     state.shotQuality = quality
 
-    fireShot({ tx, ty, speed, banana, dir: 1 })
+    fireShot({ tx, ty, speed, aLat, dir: 1 })
 
-    // 電腦門將：直射讀真實落點、香蕉球讀「起始航向」→ 被弧線騙
+    // 電腦門將：讀「起始航向」（不含弧線的落點）→ 香蕉球會騙過它
     const T = state.shot.T
-    const readX = banana ? tx - 0.5 * state.ball.aLat * T * T : tx
+    const readX = tx - 0.5 * aLat * T * T
     const kp = state.keeper
     if (Math.random() < d.keeperSide) {
       kp.targetX = clamp(readX, -3.2, 3.2) * (0.8 + Math.random() * 0.3)
@@ -452,9 +432,13 @@ export function createPkScreen() {
       else ty = 2.7 + Math.random() * 0.8
     }
     let speed = d.cpuSpeed[0] + Math.random() * (d.cpuSpeed[1] - d.cpuSpeed[0])
-    const banana = Math.random() < d.cpuBanana
-    if (banana) speed *= 0.72 // 香蕉球慢 → 反應窗較長
-    state.cpuPlan = { tx, ty, speed, banana }
+    let aLat = 0
+    if (Math.random() < d.cpuBanana) {
+      speed *= 0.72 // 香蕉球慢 → 反應窗較長
+      const cdir = -(Math.sign(tx) || (Math.random() < 0.5 ? 1 : -1))
+      aLat = cdir * (16 + 9 * (speed / 24))
+    }
+    state.cpuPlan = { tx, ty, speed, aLat }
   }
 
   function cpuKick() {
@@ -484,24 +468,19 @@ export function createPkScreen() {
 
   // ---------- 出腳（共用） ----------
   // dir: 1 = 射手回合（z 0→11）、-1 = 門將回合（z 11→0 朝鏡頭）
-  function fireShot({ tx, ty, speed, banana, dir }) {
+  function fireShot({ tx, ty, speed, aLat = 0, dir }) {
     const b = state.ball
     const vz = speed * 0.97
     const T = GOAL.z / vz
-    let aLat = 0
-    if (banana) {
-      const cdir = -(Math.sign(tx) || (Math.random() < 0.5 ? 1 : -1))
-      aLat = cdir * (16 + 9 * (speed / 24)) // 誇張弧線
-    }
     b.vz = dir * vz
-    b.vx = (tx - b.x - 0.5 * aLat * T * T) / T
+    b.vx = (tx - b.x - 0.5 * aLat * T * T) / T // 解初速：球起步偏一側、弧線彎回 tx
     b.vy = (ty - b.y + 0.5 * G * T * T) / T
     b.aLat = aLat
     b.vrot = (9 + Math.random() * 4) * dir
     b.live = true
     b.sqv += 4.5
     b.squashAngle = Math.atan2(-b.vy, b.vx)
-    state.shot = { tx, ty, T, speed, banana }
+    state.shot = { tx, ty, T, speed }
     state.phase = 'fly'
     state.flyT = 0
     sound.kick()
@@ -598,14 +577,17 @@ export function createPkScreen() {
       if (state.msgT <= 0) msgEl.classList.remove('show')
     }
 
-    // 力道條（香蕉球速度不均）
-    if (state.phase === 'power') {
-      const banana = state.ballType === 'banana'
-      const mod = banana ? 0.45 + 1.15 * Math.pow(Math.sin(state.time * 2.9), 2) : 1
-      state.meter.ph += dt * state.diff.meterHz * 2 * mod
-      const ph = state.meter.ph % 2
-      state.meter.v = ph < 1 ? ph : 2 - ph
-      cursorEl.style.left = `${state.meter.v * 100}%`
+    // 三段擺動箭頭：方向（正弦左右擺）→ 力道（三角波 0~1）→ 曲度（正弦左彎~右彎）
+    if (state.phase === 'aimDir') {
+      state.arrow.ph += dt * DIR_HZ * Math.PI * 2
+      state.arrow.dir = Math.sin(state.arrow.ph) * MAX_DIR
+    } else if (state.phase === 'aimPower') {
+      state.arrow.ph += dt * state.diff.meterHz * 2
+      const ph = state.arrow.ph % 2
+      state.arrow.power = ph < 1 ? ph : 2 - ph
+    } else if (state.phase === 'aimCurve') {
+      state.arrow.ph += dt * CURVE_HZ * Math.PI * 2
+      state.arrow.curve = Math.sin(state.arrow.ph)
     }
 
     // 門將回合節奏
@@ -708,26 +690,96 @@ export function createPkScreen() {
     if (kp) drawKeeper(ctx, cam, kp, state.time)
     if (ballVisible && !ballBehind) paintBallFwd(b)
 
-    // 瞄準準星（選點與力道階段）
-    if ((state.phase === 'aim' || state.phase === 'power') && state.aimPoint) {
-      const p = cam.project(state.aimPoint.x, state.aimPoint.y, GOAL.z)
-      const r = Math.max(10, cam.K * 0.045)
-      ctx.strokeStyle = 'rgba(255,211,61,0.95)'
-      ctx.lineWidth = 2.5
+    // 三段擺動箭頭
+    if (state.phase === 'aimDir' || state.phase === 'aimPower' || state.phase === 'aimCurve') {
+      drawAimArrow()
+    }
+  }
+
+  // 從球往球門方向的箭頭：方向(角度) / 力道(填滿量+甜蜜區色) / 曲度(彎曲)
+  function drawAimArrow() {
+    const ph = state.phase
+    const dirA = ph === 'aimDir' ? state.arrow.dir : state.lockedDir
+    const power = ph === 'aimPower' ? state.arrow.power : ph === 'aimCurve' ? state.lockedPower : 1
+    const curve = ph === 'aimCurve' ? state.arrow.curve : 0
+    const [lo, hi] = state.diff.sweet
+
+    const base = cam.project(0, BALL_R, 0)
+    const L = H * 0.26
+    // 方向：dirA=0 朝正上；正=右、負=左
+    const ux = Math.sin(dirA)
+    const uy = -Math.cos(dirA)
+    const tipX = base.x + ux * L
+    const tipY = base.y + uy * L
+    // 曲度 → 控制點側偏（垂直於箭頭方向）
+    const px = -uy
+    const py = ux
+    const bend = curve * L * 0.55
+    const cxp = (base.x + tipX) / 2 + px * bend
+    const cyp = (base.y + tipY) / 2 + py * bend
+
+    ctx.save()
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+
+    // 底層灰桿
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+    ctx.lineWidth = 16
+    ctx.beginPath()
+    ctx.moveTo(base.x, base.y)
+    ctx.quadraticCurveTo(cxp, cyp, tipX, tipY)
+    ctx.stroke()
+
+    // 力道填滿：依甜蜜區上色（不足=橘、完美=黃、過大=紅）
+    let fillCol = 'rgba(255,211,61,0.95)'
+    if (ph === 'aimPower') {
+      fillCol = power > hi ? 'rgba(231,76,60,0.95)' : power >= lo ? 'rgba(255,211,61,0.98)' : 'rgba(255,157,61,0.95)'
+    } else {
+      fillCol = 'rgba(255,211,61,0.98)'
+    }
+    // 沿 quadratic 曲線取樣，畫出前 frac 比例的填滿段
+    const seg = (frac) => {
       ctx.beginPath()
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-        ctx.moveTo(p.x + dx * r * 0.55, p.y + dy * r * 0.55)
-        ctx.lineTo(p.x + dx * r * 1.45, p.y + dy * r * 1.45)
+      ctx.moveTo(base.x, base.y)
+      const steps = 20
+      for (let i = 1; i <= steps; i++) {
+        const tt = (i / steps) * frac
+        const mx = (1 - tt) * (1 - tt) * base.x + 2 * (1 - tt) * tt * cxp + tt * tt * tipX
+        const my = (1 - tt) * (1 - tt) * base.y + 2 * (1 - tt) * tt * cyp + tt * tt * tipY
+        ctx.lineTo(mx, my)
       }
       ctx.stroke()
-      ctx.fillStyle = 'rgba(255,211,61,0.95)'
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2)
-      ctx.fill()
     }
+    ctx.strokeStyle = fillCol
+    ctx.lineWidth = 11
+    seg(ph === 'aimPower' ? Math.max(0.02, power) : 1)
+
+    // 甜蜜區刻度（力道段顯示）
+    if (ph === 'aimPower') {
+      for (const m of [lo, hi]) {
+        const mx = (1 - m) * (1 - m) * base.x + 2 * (1 - m) * m * cxp + m * m * tipX
+        const my = (1 - m) * (1 - m) * base.y + 2 * (1 - m) * m * cyp + m * m * tipY
+        ctx.fillStyle = '#fff'
+        ctx.beginPath()
+        ctx.arc(mx, my, 4, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+
+    // 箭頭頭部（沿切線方向）
+    const tx = tipX - cxp
+    const ty = tipY - cyp
+    const ang = Math.atan2(ty, tx)
+    ctx.fillStyle = fillCol
+    ctx.translate(tipX, tipY)
+    ctx.rotate(ang)
+    ctx.beginPath()
+    ctx.moveTo(14, 0)
+    ctx.lineTo(-8, -12)
+    ctx.lineTo(-8, 12)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
   }
 
   function renderKeeperView() {
@@ -836,17 +888,8 @@ export function createPkScreen() {
   canvas.addEventListener('pointerdown', (e) => {
     const [x, y] = pointerXY(e)
     sound.unlock()
-    if (state.phase === 'aim') pickAim(x, y)
-    else if (state.phase === 'power') lockPower()
+    if (state.phase === 'aimDir' || state.phase === 'aimPower' || state.phase === 'aimCurve') advanceAim()
     else if (!state.playerShoots && state.phase === 'fly') keeperTap(x, y)
-  })
-
-  typesEl.addEventListener('click', (e) => {
-    const btn = e.target.closest('button')
-    if (!btn) return
-    state.ballType = btn.dataset.type
-    typesEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn))
-    sound.click()
   })
 
   // ---------- 覆蓋層 ----------
@@ -917,18 +960,10 @@ export function createPkScreen() {
     window.__pk = {
       state,
       crowdAnim,
-      aim: (x, y) => {
-        if (state.phase !== 'aim') return false
-        state.aimPoint = { x, y }
-        state.phase = 'power'
-        state.meter.ph = 0
-        meterEl.classList.add('show')
-        return true
-      },
-      lockPower: (v) => {
-        if (state.phase !== 'power') return false
-        state.meter.v = v
-        lockPower()
+      // 一鍵射門：直接指定方向(-1~1)、力道(0~1)、曲度(-1~1)
+      shoot: (dirN = 0, powerV = 0.7, curveV = 0) => {
+        if (state.phase !== 'aimDir' && state.phase !== 'aimPower' && state.phase !== 'aimCurve') return false
+        playerFire(dirN * MAX_DIR, powerV, curveV)
         return true
       },
       tapCircle: () => {
