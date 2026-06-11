@@ -32,8 +32,6 @@ import {
   drawGoalFrameRev,
   drawStriker,
   drawGloves,
-  makeCrowd,
-  drawCrowd,
 } from './pkScene.js'
 
 const G = 9.81
@@ -120,11 +118,7 @@ export function createPkScreen() {
   let bgFwd = null
   let bgRev = null
   let stadiumImg = null
-  let crowdFwd = null
-  let crowdRev = null
-  const crowdAnim = { cheer: 0, sink: 0, time: 0 } // 觀眾情緒：歡呼跳動 / 往下坐
-  const crowdLayer = document.createElement('canvas') // 離屏圖層，整批觀眾模糊一次
-  const crowdCtx = crowdLayer.getContext('2d')
+  const crowdAnim = { cheer: 0, sink: 0, time: 0 } // 看台情緒：進球變亮(歡呼) / 沒進變暗(沮喪)
 
   const state = {
     raf: 0,
@@ -173,22 +167,19 @@ export function createPkScreen() {
     rev = makeRevView(W, H)
     bgFwd = renderBackground(cam, dpr, stadiumImg)
     bgRev = renderBackgroundRev(rev, dpr, stadiumImg)
-    crowdFwd = makeCrowd(W, cam.horizonY)
-    crowdRev = makeCrowd(W, rev.horizonY)
-    crowdLayer.width = canvas.width
-    crowdLayer.height = canvas.height
-    crowdCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
-  // 觀眾：畫到離屏層、再對整批一次模糊貼到主畫布（省效能、避免逐方塊 filter）
-  function paintCrowd(crowd) {
-    if (!crowd) return
-    crowdCtx.clearRect(0, 0, W, H)
-    drawCrowd(crowdCtx, crowd, crowdAnim)
-    ctx.save()
-    if (ctx.filter !== undefined) ctx.filter = 'blur(0.8px)'
-    ctx.drawImage(crowdLayer, 0, 0, W, H)
-    ctx.restore()
+  // 觀眾情緒：圖內已有觀眾，這裡只在看台區疊亮度／暗度——進球時看台變亮(歡呼)、沒進變暗(沮喪)
+  function drawCrowdMood(hzY) {
+    if (crowdAnim.cheer > 0.01) {
+      const a = 0.26 * crowdAnim.cheer * (0.85 + 0.15 * Math.sin(crowdAnim.time * 12)) // 微閃爍像在跳
+      ctx.fillStyle = `rgba(255,236,150,${a})`
+      ctx.fillRect(0, 0, W, hzY)
+    }
+    if (crowdAnim.sink > 0.01) {
+      ctx.fillStyle = `rgba(0,6,24,${0.36 * crowdAnim.sink})`
+      ctx.fillRect(0, 0, W, hzY)
+    }
   }
 
   {
@@ -679,7 +670,7 @@ export function createPkScreen() {
 
   function renderShooterView() {
     ctx.drawImage(bgFwd, 0, 0, W, H)
-    paintCrowd(crowdFwd) // 動態觀眾疊在 AI 看台圖（或程序看台）上
+    drawCrowdMood(cam.horizonY) // 看台區情緒亮度
     drawGoalAndNet(ctx, cam, state.net)
 
     const b = state.ball
@@ -792,7 +783,7 @@ export function createPkScreen() {
 
   function renderKeeperView() {
     ctx.drawImage(bgRev, 0, 0, W, H)
-    paintCrowd(crowdRev)
+    drawCrowdMood(rev.horizonY)
 
     if (state.striker) drawStriker(ctx, rev, state.striker, state.time)
 
