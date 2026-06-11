@@ -34,7 +34,20 @@ export function makeCamera(W, H) {
 
 // ---------- 背景（看台 / 草皮 / 白線），resize 時預渲染一次 ----------
 // 若提供 standsImg（AI 生成看台圖），取代程序繪製的天空 + 看台區。
-export function renderBackground(cam, dpr, standsImg = null) {
+// 將圖片 cover-fit 進指定矩形（含裁切）
+function coverImageInto(g, img, x, y, w, h) {
+  const scale = Math.max(w / img.width, h / img.height)
+  const dw = img.width * scale
+  const dh = img.height * scale
+  g.save()
+  g.beginPath()
+  g.rect(x, y, w, h)
+  g.clip()
+  g.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
+  g.restore()
+}
+
+export function renderBackground(cam, dpr, standsImg = null, grassImg = null) {
   const { W, H, horizonY, groundY } = cam
   const cv = document.createElement('canvas')
   cv.width = Math.round(W * dpr)
@@ -57,20 +70,24 @@ export function renderBackground(cam, dpr, standsImg = null) {
     drawStands(g, W, horizonY)
   }
 
-  // 草皮：橫向割草條紋，由遠到近。z 不可逼近相機平面 (z = -c)，否則 scale 變負。
-  const Z_MIN = -1.2
-  for (let i = 0; ; i++) {
-    const zFar = 16 - i * 1.4
-    if (zFar <= Z_MIN) break
-    const zNear = Math.max(zFar - 1.4, Z_MIN)
-    const yTop = i === 0 ? horizonY : groundY(zFar)
-    const yBot = Math.min(H + 2, groundY(zNear))
-    g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
-    g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
+  // 草皮：真實草地照片（cover 進地平線以下），否則退回程序割草條紋
+  if (grassImg) {
+    coverImageInto(g, grassImg, 0, horizonY - 1, W, H - horizonY + 1)
+  } else {
+    const Z_MIN = -1.2
+    for (let i = 0; ; i++) {
+      const zFar = 16 - i * 1.4
+      if (zFar <= Z_MIN) break
+      const zNear = Math.max(zFar - 1.4, Z_MIN)
+      const yTop = i === 0 ? horizonY : groundY(zFar)
+      const yBot = Math.min(H + 2, groundY(zNear))
+      g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
+      g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
+    }
   }
   // 草皮縱深明暗（遠處偏冷灰、近處飽和）
   const tint = g.createLinearGradient(0, horizonY, 0, H)
-  tint.addColorStop(0, 'rgba(190,215,235,0.22)')
+  tint.addColorStop(0, 'rgba(190,215,235,0.18)')
   tint.addColorStop(0.35, 'rgba(190,215,235,0)')
   tint.addColorStop(1, 'rgba(0,30,0,0.12)')
   g.fillStyle = tint
@@ -355,7 +372,7 @@ export function makeRevView(W, H) {
   }
 }
 
-export function renderBackgroundRev(view, dpr, standsImg = null) {
+export function renderBackgroundRev(view, dpr, standsImg = null, grassImg = null) {
   const { W, H, horizonY, baseY, groundY } = view
   const cv = document.createElement('canvas')
   cv.width = Math.round(W * dpr)
@@ -378,16 +395,20 @@ export function renderBackgroundRev(view, dpr, standsImg = null) {
     drawStands(g, W, horizonY)
   }
 
-  // 草皮條紋（由遠到近：z 大 → 小）
-  const Z_MIN = -2.2
-  for (let i = 0; ; i++) {
-    const zFar = 30 - i * 2.4
-    if (zFar <= Z_MIN) break
-    const zNear = Math.max(zFar - 2.4, Z_MIN)
-    const yTop = i === 0 ? horizonY : groundY(zFar)
-    const yBot = Math.min(H + 2, groundY(zNear))
-    g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
-    g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
+  // 草皮：真實草地照片（cover 進地平線以下），否則退回程序條紋
+  if (grassImg) {
+    coverImageInto(g, grassImg, 0, horizonY - 1, W, H - horizonY + 1)
+  } else {
+    const Z_MIN = -2.2
+    for (let i = 0; ; i++) {
+      const zFar = 30 - i * 2.4
+      if (zFar <= Z_MIN) break
+      const zNear = Math.max(zFar - 2.4, Z_MIN)
+      const yTop = i === 0 ? horizonY : groundY(zFar)
+      const yBot = Math.min(H + 2, groundY(zNear))
+      g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
+      g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
+    }
   }
 
   // 白線：球門線（腳下）、小禁區、罰球點

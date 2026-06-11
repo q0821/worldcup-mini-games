@@ -120,6 +120,7 @@ export function createPkScreen() {
   let bgFwd = null
   let bgRev = null
   let standsImg = null
+  let grassImg = null
   let crowdFwd = null
   let crowdRev = null
   const crowdAnim = { cheer: 0, sink: 0, time: 0 } // 觀眾情緒：歡呼跳動 / 往下坐
@@ -171,8 +172,8 @@ export function createPkScreen() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     cam = makeCamera(W, H)
     rev = makeRevView(W, H)
-    bgFwd = renderBackground(cam, dpr, standsImg)
-    bgRev = renderBackgroundRev(rev, dpr, standsImg)
+    bgFwd = renderBackground(cam, dpr, standsImg, grassImg)
+    bgRev = renderBackgroundRev(rev, dpr, standsImg, grassImg)
     crowdFwd = makeCrowd(W, cam.horizonY)
     crowdRev = makeCrowd(W, rev.horizonY)
     crowdLayer.width = canvas.width
@@ -192,15 +193,23 @@ export function createPkScreen() {
   }
 
   {
-    const img = new Image()
-    img.onload = () => {
-      standsImg = img
-      if (cam) {
-        bgFwd = renderBackground(cam, dpr, standsImg)
-        bgRev = renderBackgroundRev(rev, dpr, standsImg)
-      }
+    const rerender = () => {
+      if (!cam) return
+      bgFwd = renderBackground(cam, dpr, standsImg, grassImg)
+      bgRev = renderBackgroundRev(rev, dpr, standsImg, grassImg)
     }
-    img.src = 'assets/bg/pk-stands.webp'
+    const stands = new Image()
+    stands.onload = () => {
+      standsImg = stands
+      rerender()
+    }
+    stands.src = 'assets/bg/pk-stands.webp'
+    const grass = new Image()
+    grass.onload = () => {
+      grassImg = grass
+      rerender()
+    }
+    grass.src = 'assets/bg/pk-grass.webp'
   }
 
   function newBall(atSpot) {
