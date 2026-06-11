@@ -7,10 +7,10 @@
 > 風格 prompt 基調：semi-realistic stylized 3D game-asset style, flat even lighting,
 > fully transparent background, no ground shadows（影子由程式的 drawContactShadow 畫）。
 
-- [ ] **門將背影 sprite**（門將回合，畫面占比最大，先做）
-  - 姿勢：預備蹲姿（背影）／左撲／右撲／撲高球，單張 sprite sheet 確保角色一致
-  - 螢光黃球衣、黑短褲、白手套、背號 1
-  - 程式：量測各 pose 範圍裁切 → 取代 `drawKeeperBack()` 的向量繪製
+- [x] **門將背影 sprite**（2026-06-11 完成）
+  - 4 姿勢單張 sheet（預備蹲姿／左撲／右撲／撲高球）→ `assets/sprites/keeper-back.webp`（95KB 含 alpha）
+  - 連通元件自動裁切重組，座標寫死於 `pkScene.js` 的 `KEEPER_SPRITE.poses`
+  - `drawKeeperBack()` 載入成功用 sprite、失敗退回向量版
 - [ ] **電腦門將正面 sprite**（射手回合）
   - 姿勢：站姿微晃／左撲／右撲（金黃球衣，與玩家門將區分）
   - 取代 `drawKeeper()`；比例：站立頭頂約到橫楣 3/4（1.8m / 2.44m）

@@ -689,6 +689,29 @@ export function drawStriker(ctx, view, st, time) {
   ctx.restore()
 }
 
+// ---------- 門將背影 sprite（AI 生成）----------
+// 載入成功後取代向量繪製；失敗（離線 / 檔案缺失）自動退回向量版。
+// poses 座標為生成後以腳本實測的像素框；hM = 該姿勢的繪製高度（公尺）、
+// ax/ay = 錨點（接地 / 重心點）在框內的相對位置。
+const KEEPER_SPRITE = {
+  src: 'assets/sprites/keeper-back.webp',
+  img: null,
+  // 像素框為打包腳本實測值；hM = 繪製高度（公尺）、ax/ay = 錨點（接地 / 重心）相對位置
+  poses: {
+    idle: { x: 8, y: 226, w: 383, h: 404, hM: 1.3, ax: 0.5, ay: 0.99 },
+    diveL: { x: 399, y: 109, w: 433, h: 521, hM: 1.75, ax: 0.62, ay: 0.62 },
+    diveR: { x: 840, y: 110, w: 404, h: 520, hM: 1.75, ax: 0.38, ay: 0.62 },
+    up: { x: 1252, y: 8, w: 159, h: 622, hM: 2.25, ax: 0.5, ay: 0.97 },
+  },
+}
+{
+  const im = new Image()
+  im.onload = () => {
+    KEEPER_SPRITE.img = im
+  }
+  im.src = KEEPER_SPRITE.src
+}
+
 // 玩家門將（門後視角的背影化身）。
 // idle：低重心預備姿勢微晃；dive: { t, sx, sy, hit } → 自門中央朝點擊處整個人撲出，
 // 命中紅圈時加拍擊衝擊波；點空則只有小波紋。
@@ -737,7 +760,26 @@ export function drawKeeperBack(ctx, view, dive, time) {
     ctx.stroke()
   }
 
-  if (!dive) {
+  const SP = KEEPER_SPRITE
+  if (SP.img && SP.poses) {
+    // ---- Sprite 版（AI 生成背影） ----
+    if (!dive) {
+      const pose = SP.poses.idle
+      const h = pose.hM * u
+      const w = h * (pose.w / pose.h)
+      const bob = Math.sin(time * 2.4 + 1.3) * 0.012 * u
+      const sway = Math.sin(time * 2.4) * 0.02 * u
+      ctx.drawImage(SP.img, pose.x, pose.y, pose.w, pose.h, px - w * pose.ax + sway, py - h * pose.ay + bob, w, h)
+    } else {
+      // 撲救：依點擊方向挑姿勢（幾乎正上方 → 跳起；否則左 / 右撲）
+      const dirX = dive.sx - view.W / 2
+      const pose =
+        Math.abs(dirX) < 0.6 * u && dive.sy < py ? SP.poses.up : dirX < 0 ? SP.poses.diveL : SP.poses.diveR
+      const h = pose.hM * u
+      const w = h * (pose.w / pose.h)
+      ctx.drawImage(SP.img, pose.x, pose.y, pose.w, pose.h, px - w * pose.ax, py - h * pose.ay, w, h)
+    }
+  } else if (!dive) {
     // ---- 預備姿勢（背影、低重心、微晃） ----
     const sway = Math.sin(time * 2.4) * 0.025
     const bob = Math.sin(time * 2.4 + 1.3) * 0.015

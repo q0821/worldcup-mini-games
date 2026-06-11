@@ -9,8 +9,12 @@ import { drawBall } from '../ball.js'
 const SIZE = 1080
 // 正式網址（vite.config.js define 注入的單一來源）
 const SITE_URL = typeof __SITE_URL__ !== 'undefined' ? __SITE_URL__ : 'https://worldcup.jackie-yeh.com'
-// 遊戲網址：優先用實際部署來源（本機=localhost、上線=部署網域），SSR 無 location 時退回正式網址
-const gameUrl = () => (typeof location !== 'undefined' ? location.origin : SITE_URL)
+// 遊戲網址：優先用實際部署來源（本機=localhost、上線=部署網域），SSR 無 location 時退回正式網址。
+// 帶 mode 時附上 #模式 深連結 → 點連結 / 掃 QR 直接進入該模式（路由見 main.js）
+const gameUrl = (mode) => {
+  const base = typeof location !== 'undefined' ? location.origin : SITE_URL
+  return mode ? `${base}/#${mode}` : base
+}
 
 // 各模式：標題、主數字標籤格式、主色
 const MODE_META = {
@@ -94,11 +98,11 @@ function drawCard(ctx, { mode, score, best }) {
   ctx.font = '500 32px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
   ctx.fillText(`${t('bestScore')}: ${best}`, cx, 678)
 
-  // QR Code（白底面板，掃描回站）
+  // QR Code（白底面板，掃描直接進入該模式）
   const qrSize = 184
   const qx = cx - qrSize / 2
   const qy = 716
-  drawQR(ctx, gameUrl(), qx, qy, qrSize)
+  drawQR(ctx, gameUrl(mode), qx, qy, qrSize)
 
   // QR 下方標語
   ctx.fillStyle = '#fff'
@@ -160,7 +164,7 @@ export async function shareScore({ mode, score, best }) {
   if (!blob) return 'cancelled'
 
   const modeTitle = t(MODE_META[mode] ? MODE_META[mode].titleKey : 'appTitle')
-  const url = gameUrl()
+  const url = gameUrl(mode) // 深連結：點開直接進入該模式
   // 文字附上網址：支援的平台會一併帶出可點連結（不支援時圖上仍有 QR 可掃）
   const text = `${t('shareText').replace('{mode}', modeTitle).replace('{score}', unitText(mode, score))} ${url}`
   const file = new File([blob], 'worldcup-score.png', { type: 'image/png' })
