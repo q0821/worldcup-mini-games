@@ -241,7 +241,8 @@ export function drawGoalAndNet(ctx, cam, net) {
   const P = (x, y, z) => cam.project(x, y, z)
 
   // ----- 背網網格 -----
-  ctx.strokeStyle = 'rgba(246,249,251,0.55)'
+  // 透明度壓低：球門頂端落在深色看台前時，密集網線才不會混成一塊灰面板
+  ctx.strokeStyle = 'rgba(248,250,252,0.3)'
   ctx.lineWidth = 1
   for (let j = 0; j < net.NY; j++) {
     ctx.beginPath()
@@ -263,7 +264,7 @@ export function drawGoalAndNet(ctx, cam, net) {
   }
 
   // ----- 側網 / 頂網（簡化線） -----
-  ctx.strokeStyle = 'rgba(246,249,251,0.4)'
+  ctx.strokeStyle = 'rgba(248,250,252,0.26)'
   for (const sx of [-GOAL.halfW, GOAL.halfW]) {
     const i = sx < 0 ? 0 : net.NX - 1
     for (let j = 0; j < net.NY; j++) {
