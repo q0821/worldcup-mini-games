@@ -14,13 +14,21 @@ import { drawBall } from '../ball.js'
 import { createHomeScreen } from './home.js'
 import { CameraTracker, PointerTracker } from './headerTracker.js'
 
-// 球場背景圖（降級 / 指標模式用；載入失敗退回漸層）
-const pitchBg = new Image()
-let pitchBgReady = false
-pitchBg.onload = () => {
-  pitchBgReady = true
+// 夜間世界盃背景：與 PK 模式共用同一組球場圖（跨模式同一座球場、可共用快取），
+// 直式 / 橫式各一張依畫面長寬比挑選；cut = 圖中草地分界線比例（實測）。
+// 載入失敗退回程序繪製夜景漸層。
+const HD_BG = {
+  p: { src: 'assets/bg/pk-night.webp', cut: 0.495, img: null },
+  l: { src: 'assets/bg/pk-night-l.webp', cut: 0.518, img: null },
 }
-pitchBg.src = 'assets/bg/header.webp'
+for (const k of Object.keys(HD_BG)) {
+  const entry = HD_BG[k]
+  const im = new Image()
+  im.onload = () => {
+    entry.img = im
+  }
+  im.src = entry.src
+}
 
 const MODE = 'header'
 const GAME_SEC = 30
@@ -125,6 +133,15 @@ export function createHeaderScreen() {
 
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
 
+  // 點 (px, py) 到線段 (ax, ay)-(bx, by) 的最短距離（連續碰撞用）
+  function segPointDist(ax, ay, bx, by, px, py) {
+    const dx = bx - ax
+    const dy = by - ay
+    const len2 = dx * dx + dy * dy
+    const tt = len2 > 0 ? clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) : 0
+    return Math.hypot(px - (ax + dx * tt), py - (ay + dy * tt))
+  }
+
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2)
     W = game.clientWidth
@@ -159,7 +176,6 @@ export function createHeaderScreen() {
       baseR: r,
       scale: 1,
       rot: 0,
-      vrot: (fromLeft ? 1 : -1) * 5,
       sq: 0,
       sqv: 0,
       squashAngle: 0,
@@ -285,21 +301,24 @@ export function createHeaderScreen() {
     }
 
     b.t += dt
-    b.rot += b.vrot * dt
     b.sqv += (-900 * b.sq - 18 * b.sqv) * dt
     b.sq += b.sqv * dt
     b.sq = clamp(b.sq, -0.18, 0.18)
 
     if (b.phase === 'cross') {
       // 拋物線飛入（滿尺寸）
+      const px0 = b.x
+      const py0 = b.y
       b.vy += GRAVITY * dt
-      b.vrot *= 0.99
       b.x += b.vx * dt
       b.y += b.vy * dt
+      // 旋轉 = 位移 ÷ 半徑（滾動一致，見 docs/ball-realism.md）
+      b.rot += (b.x - px0) / b.r
 
-      // 頂球判定：頭往任意方向擺動夠快 → 動量轉移頂球；太慢 → 只輕彈
+      // 頂球判定：頭往任意方向擺動夠快 → 動量轉移頂球；太慢 → 只輕彈。
+      // 連續碰撞：檢查「頭心到本幀球路徑線段」的距離，高速球不再從頭旁穿幀而過
       if (head.active && state.contactCd <= 0) {
-        const d = Math.hypot(b.x - head.x, b.y - head.y)
+        const d = segPointDist(px0, py0, b.x, b.y, head.x, head.y)
         if (d < b.r + head.r) {
           const swing = Math.hypot(head.vx, head.vy)
           if (swing > HEAD_SWING_THRESH) {
@@ -321,10 +340,12 @@ export function createHeaderScreen() {
       }
     } else if (b.phase === 'out') {
       // 頂出 → 縮小飛向遠方球門
+      const px0 = b.x
       const p = clamp(b.t / (b.outDur || T_OUT), 0, 1)
       b.scale = 1 + (FAR_SCALE - 1) * p
       b.x = b.x0 + (b.x1 - b.x0) * p
       b.y = b.y0 + (b.y1 - b.y0) * p - Math.sin(Math.PI * p) * H * 0.05
+      b.rot += (b.x - px0) / Math.max(8, b.baseR * b.scale)
       if (p >= 1) {
         if (b.willScore) {
           state.score += 1
@@ -353,30 +374,37 @@ export function createHeaderScreen() {
   function render() {
     ctx.clearRect(0, 0, W, H)
 
-    // 球場背景：AI 球場圖。在圖的草地線(0.5)切兩段，看台段填到球門底、草地段填以下，
-    // 強制讓背景草地線對齊球門底 → 球門站在草地上、不浮空。載入失敗退回漸層 + 條紋。
-    if (pitchBgReady) {
-      const cut = pitchBg.height * 0.5 // header.webp 看台/草地分界
-      const lineY = goal.baseY
-      ctx.drawImage(pitchBg, 0, 0, pitchBg.width, cut, 0, 0, W, lineY)
-      ctx.drawImage(pitchBg, 0, cut, pitchBg.width, pitchBg.height - cut, 0, lineY, W, H - lineY)
-    } else {
-      const hz = HORIZON()
-      const sky = ctx.createLinearGradient(0, 0, 0, hz)
-      sky.addColorStop(0, '#7ec0e8')
-      sky.addColorStop(1, '#cfeeff')
-      ctx.fillStyle = sky
-      ctx.fillRect(0, 0, W, hz)
-      const grass = ctx.createLinearGradient(0, hz, 0, H)
-      grass.addColorStop(0, '#3f9b4b')
-      grass.addColorStop(1, '#256a2f')
-      ctx.fillStyle = grass
-      ctx.fillRect(0, hz, W, H - hz)
-      ctx.fillStyle = 'rgba(255,255,255,0.045)'
-      for (let i = 0; i < 7; i++) {
-        const y = hz + ((H - hz) * i * i) / 49
-        const y2 = hz + ((H - hz) * (i + 1) * (i + 1)) / 49
-        if (i % 2 === 0) ctx.fillRect(0, y, W, y2 - y)
+    // 球場背景：夜間世界盃球場圖（直/橫式依長寬比挑選，與 PK 同一座球場）。
+    // 在圖的草地分界線切兩段，看台段填到球門底、草地段填以下，
+    // 強制讓背景草地線對齊球門底 → 球門站在草地上、不浮空。載入失敗退回夜景漸層。
+    {
+      const prefer = W > H ? HD_BG.l : HD_BG.p
+      const alt = W > H ? HD_BG.p : HD_BG.l
+      const bgEntry = prefer.img ? prefer : alt.img ? alt : null
+      if (bgEntry) {
+        const img = bgEntry.img
+        const cut = img.height * bgEntry.cut
+        const lineY = goal.baseY
+        ctx.drawImage(img, 0, 0, img.width, cut, 0, 0, W, lineY)
+        ctx.drawImage(img, 0, cut, img.width, img.height - cut, 0, lineY, W, H - lineY)
+      } else {
+        const hz = HORIZON()
+        const sky = ctx.createLinearGradient(0, 0, 0, hz)
+        sky.addColorStop(0, '#060b18')
+        sky.addColorStop(1, '#16233f')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, W, hz)
+        const grass = ctx.createLinearGradient(0, hz, 0, H)
+        grass.addColorStop(0, '#2c6e38')
+        grass.addColorStop(1, '#1d5228')
+        ctx.fillStyle = grass
+        ctx.fillRect(0, hz, W, H - hz)
+        ctx.fillStyle = 'rgba(255,255,255,0.045)'
+        for (let i = 0; i < 7; i++) {
+          const y = hz + ((H - hz) * i * i) / 49
+          const y2 = hz + ((H - hz) * (i + 1) * (i + 1)) / 49
+          if (i % 2 === 0) ctx.fillRect(0, y, W, y2 - y)
+        }
       }
     }
 
@@ -398,12 +426,21 @@ export function createHeaderScreen() {
     const b = state.ball
     if (b) {
       const r = b.baseR * b.scale
-      // 球影（傳中階段落在頂球線上）
-      if (b.phase === 'cross') {
-        ctx.fillStyle = 'rgba(0,0,0,0.16)'
+      // 球影（擬真準則，見 docs/ball-realism.md）：投在地面、越高越大越模糊越淡。
+      // 傳中階段地面在前景底部；頂出階段地面隨球縮小往球門線收
+      {
+        const p = b.phase === 'out' ? clamp(b.t / (b.outDur || T_OUT), 0, 1) : 0
+        const groundY = H * 0.9 + (goal.baseY + 6 - H * 0.9) * p
+        const hN = clamp((groundY - (b.y + r)) / (H * 0.5), 0, 1)
+        const w = r * (0.78 + hN * 1.05)
+        ctx.save()
+        if (ctx.filter !== undefined) ctx.filter = `blur(${(2 + hN * 14).toFixed(1)}px)`
+        ctx.globalAlpha = 0.32 * (1 - hN * 0.72)
+        ctx.fillStyle = '#000'
         ctx.beginPath()
-        ctx.ellipse(b.x, headLineY() + 6, r * 0.9, r * 0.28, 0, 0, Math.PI * 2)
+        ctx.ellipse(b.x, groundY, w, w * 0.24, 0, 0, Math.PI * 2)
         ctx.fill()
+        ctx.restore()
       }
       drawBall(ctx, {
         cx: b.x,
@@ -440,7 +477,15 @@ export function createHeaderScreen() {
     const bTop = topY + depth * 0.12 // 背板頂略低於橫楣
     const bBot = botY - depth * 0.95 // 背板底抬高（網往後落地）
 
-    // 柔和落地陰影（模糊、低透明、貼著門柱底）
+    // 球門線（橫貫草地，定錨球門）
+    ctx.strokeStyle = 'rgba(250,250,248,0.5)'
+    ctx.lineWidth = Math.max(2, post * 0.55)
+    ctx.beginPath()
+    ctx.moveTo(0, botY)
+    ctx.lineTo(W, botY)
+    ctx.stroke()
+
+    // 柔和落地陰影（模糊、低透明、貼著門柱底）+ 兩根門柱腳的接觸影
     ctx.save()
     if (ctx.filter !== undefined) ctx.filter = 'blur(9px)'
     ctx.fillStyle = 'rgba(0,0,0,0.16)'
@@ -448,8 +493,15 @@ export function createHeaderScreen() {
     ctx.ellipse(cx, botY + post * 0.6, goal.halfW * 0.96, goal.halfW * 0.085, 0, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    for (const x of [x0, x1]) {
+      ctx.beginPath()
+      ctx.ellipse(x, botY + 2, post * 1.2, post * 0.36, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
 
-    // 背板網格節點：靜止時在背板（呈現 3D 深度），進球時沿「前→後」方向往後凸（漣漪）
+    // 背板網格節點：靜止時在背板（呈現 3D 深度），進球時沿「前→後」方向往後凸（漣漪）。
+    // 視覺垂墜：頂緣繃緊、底部中央最鬆 → 網布不再直挺挺
     const node = (i, j) => {
       const u = i / (NETX - 1)
       const v = j / (NETY - 1)
@@ -458,7 +510,8 @@ export function createHeaderScreen() {
       const px = bx0 + (bx1 - bx0) * u
       const py = bTop + (bBot - bTop) * v
       const d = netD[j * NETX + i]
-      return [px + (px - fx) * d * 0.8, py + (py - fy) * d * 0.8]
+      const sagPx = Math.sin(Math.PI * u) * Math.sin(Math.PI * v) * goal.h * 0.06 // 四邊固定、中央下垂
+      return [px + (px - fx) * d * 0.8, py + (py - fy) * d * 0.8 + sagPx]
     }
 
     // 背網格線
@@ -499,25 +552,33 @@ export function createHeaderScreen() {
       link(x0 + (x1 - x0) * u, topY, i, 0)
     }
 
-    // 門柱 + 橫楣（圓柱感：主體白 + 右側陰影邊）
+    // 門柱 + 橫楣（圓柱漸層：與 PK 模式同一質感）
     ctx.lineCap = 'round'
-    const drawBar = (ax, ay, bx, by) => {
-      ctx.strokeStyle = '#f4f6f7'
+    for (const x of [x0, x1]) {
+      const gr = ctx.createLinearGradient(x - post / 2, 0, x + post / 2, 0)
+      gr.addColorStop(0, '#9aa3ad')
+      gr.addColorStop(0.3, '#fdfdfe')
+      gr.addColorStop(0.6, '#edf0f3')
+      gr.addColorStop(1, '#828a94')
+      ctx.strokeStyle = gr
       ctx.lineWidth = post
       ctx.beginPath()
-      ctx.moveTo(ax, ay)
-      ctx.lineTo(bx, by)
-      ctx.stroke()
-      ctx.strokeStyle = 'rgba(120,132,140,0.5)'
-      ctx.lineWidth = post * 0.3
-      ctx.beginPath()
-      ctx.moveTo(ax + post * 0.28, ay)
-      ctx.lineTo(bx + post * 0.28, by)
+      ctx.moveTo(x, botY)
+      ctx.lineTo(x, topY)
       ctx.stroke()
     }
-    drawBar(x0, botY, x0, topY)
-    drawBar(x1, botY, x1, topY)
-    drawBar(x0, topY, x1, topY)
+    {
+      const gr = ctx.createLinearGradient(0, topY - post / 2, 0, topY + post / 2)
+      gr.addColorStop(0, '#fdfdfe')
+      gr.addColorStop(0.55, '#e9ecef')
+      gr.addColorStop(1, '#7e858f')
+      ctx.strokeStyle = gr
+      ctx.lineWidth = post
+      ctx.beginPath()
+      ctx.moveTo(x0, topY)
+      ctx.lineTo(x1, topY)
+      ctx.stroke()
+    }
   }
 
   function drawHeadMarker() {

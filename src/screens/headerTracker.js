@@ -43,8 +43,11 @@ class BaseTracker {
     this.vy = 0
     this._lx = null
     this._ly = null
+    this._rtx = null // 上一筆「原始量測」（速度用，不平滑位置以免低估擺動）
+    this._rty = null
   }
-  // 以 dt 平滑位置並算速度（px/s）
+  // 位置平滑顯示；速度改用「原始量測差分」再平滑——
+  // 用平滑後位置算速度會低估快速擺頭的力道（頂球判定吃 vx/vy，這點很關鍵）。
   _commit(tx, ty, dt) {
     if (this._lx == null) {
       this.x = tx
@@ -54,13 +57,26 @@ class BaseTracker {
       this.x += (tx - this.x) * a
       this.y += (ty - this.y) * a
     }
-    if (dt > 0 && this._lx != null) {
-      this.vx = (this.x - this._lx) / dt
-      this.vy = (this.y - this._ly) / dt
+    if (dt > 0 && this._rtx != null) {
+      const rvx = (tx - this._rtx) / dt
+      const rvy = (ty - this._rty) / dt
+      const b = Math.min(1, dt * 14) // 速度平滑（去抖動但保留峰值反應）
+      this.vx += (rvx - this.vx) * b
+      this.vy += (rvy - this.vy) * b
     }
+    this._rtx = tx
+    this._rty = ty
     this._lx = this.x
     this._ly = this.y
     this.active = true
+  }
+  _reset() {
+    this._lx = null
+    this._ly = null
+    this._rtx = null
+    this._rty = null
+    this.vx = 0
+    this.vy = 0
   }
 }
 
@@ -74,6 +90,8 @@ export class PointerTracker {
     this._has = false
     this._lx = null
     this._ly = null
+    this._rtx = null
+    this._rty = null
     this.active = false
     this.x = 0
     this.y = 0
@@ -101,10 +119,16 @@ export class PointerTracker {
       this.x += (this._tx - this.x) * a
       this.y += (this._ty - this.y) * a
     }
-    if (dt > 0 && this._lx != null) {
-      this.vx = (this.x - this._lx) / dt
-      this.vy = (this.y - this._ly) / dt
+    // 速度用原始指標差分（平滑位置會低估快速揮動），再做輕平滑去抖
+    if (dt > 0 && this._rtx != null) {
+      const rvx = (this._tx - this._rtx) / dt
+      const rvy = (this._ty - this._rty) / dt
+      const b = Math.min(1, dt * 14)
+      this.vx += (rvx - this.vx) * b
+      this.vy += (rvy - this.vy) * b
     }
+    this._rtx = this._tx
+    this._rty = this._ty
     this._lx = this.x
     this._ly = this.y
     this.active = true
@@ -125,6 +149,7 @@ export class CameraTracker extends BaseTracker {
     this.landmarker = null
     this.headR = 60 // 偵測到的頭部半徑（px，依太陽穴間距估）
     this._lastResultTime = -1
+    this._lostT = 0 // 臉部丟失累計秒數（快速擺頭常造成單幀模糊掉偵測）
   }
 
   // 可能拋錯：NotAllowedError（拒絕）/ NotFoundError（無鏡頭）/ 模型載入失敗 / 非安全內容。
@@ -179,10 +204,19 @@ export class CameraTracker extends BaseTracker {
     }
     const faces = res && res.faceLandmarks
     if (!faces || !faces.length) {
-      this.active = false
-      this._lx = null // 重新出現時不要算出爆衝速度
+      // 寬限期：快速擺頭時影像動態模糊常掉一兩幀偵測，
+      // 0.35 秒內維持 active（位置沿用、速度衰減）讓頂球瞬間不失效
+      this._lostT += dt
+      if (this._lostT < 0.35) {
+        this.vx *= Math.max(0, 1 - dt * 6)
+        this.vy *= Math.max(0, 1 - dt * 6)
+      } else {
+        this.active = false
+        this._reset() // 重新出現時不要算出爆衝速度
+      }
       return
     }
+    this._lostT = 0
     const lm = faces[0]
     const ct = coverTransform(v.videoWidth, v.videoHeight, dstW, dstH)
     const fh = ct.map(lm[FOREHEAD].x, lm[FOREHEAD].y)
