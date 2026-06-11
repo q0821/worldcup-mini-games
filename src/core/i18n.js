@@ -70,6 +70,7 @@ const DICT = {
     hdHeadHint: '擺頭撞球，朝球門頂出！',
 
     shareCardCta: '來挑戰我的分數！',
+    shareScanCta: '掃描 QR 一起玩',
     shareText: '我在「{mode}」拿到 {score}，換你挑戰看看！',
     shareSaved: '已儲存成績圖卡',
     shareUnit: { keepy: '連續 {n} 下', header: '進 {n} 球', pk: '射進 {n} 球' },
@@ -144,6 +145,7 @@ const DICT = {
     hdHeadHint: 'Swing your head to head it goalward!',
 
     shareCardCta: 'Beat my score!',
+    shareScanCta: 'Scan to play',
     shareText: 'I scored {score} in "{mode}" — can you beat it?',
     shareSaved: 'Score card saved',
     shareUnit: { keepy: '{n} in a row', header: '{n} goals', pk: '{n} scored' },

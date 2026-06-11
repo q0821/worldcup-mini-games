@@ -1,10 +1,14 @@
 // 分享圖卡：把分數畫成 PNG（Canvas），用 Web Share API 帶檔分享 / 不支援則下載。
 // 分數是圖片像素的一部分，分享到任何平台都看得到，不需要後端 / OG meta。
+// 圖卡含 QR Code（指向遊戲網址），任何人看到圖、掃一下就能回站玩。
+import qrcode from 'qrcode-generator'
 import { t } from './i18n.js'
 import { getBest } from './storage.js'
 import { drawBall } from '../ball.js'
 
 const SIZE = 1080
+// 遊戲網址：用實際部署來源（本機=localhost、上線=worldcup.jackie-yeh.com）
+const gameUrl = () => (typeof location !== 'undefined' ? location.origin : 'https://worldcup.jackie-yeh.com')
 
 // 各模式：標題、主數字標籤格式、主色
 const MODE_META = {
@@ -49,58 +53,79 @@ function drawCard(ctx, { mode, score, best }) {
 
   // App 標題
   ctx.fillStyle = '#fff'
-  ctx.font = '700 60px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.font = '700 54px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
   ctx.shadowColor = 'rgba(0,0,0,0.35)'
   ctx.shadowOffsetY = 4
-  ctx.shadowBlur = 0
-  ctx.fillText(t('appTitle'), cx, 150)
+  ctx.fillText(t('appTitle'), cx, 108)
   ctx.shadowColor = 'transparent'
   ctx.shadowOffsetY = 0
 
   // 模式名（accent 色膠囊）
-  ctx.font = '700 38px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.font = '700 36px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
   const modeText = t(meta.titleKey)
-  const mw = ctx.measureText(modeText).width + 56
-  roundRect(ctx, cx - mw / 2, 192, mw, 64, 32)
+  const mw = ctx.measureText(modeText).width + 52
+  roundRect(ctx, cx - mw / 2, 142, mw, 58, 29)
   ctx.fillStyle = accent
   ctx.fill()
   ctx.fillStyle = '#15241a'
-  ctx.fillText(modeText, cx, 235)
+  ctx.fillText(modeText, cx, 181)
 
   // 足球
-  drawBall(ctx, { cx, cy: 400, r: 110 })
+  drawBall(ctx, { cx, cy: 330, r: 86 })
 
   // 主數字
   ctx.fillStyle = accent
-  ctx.font = '800 240px -apple-system, sans-serif'
+  ctx.font = '800 200px -apple-system, sans-serif'
   ctx.shadowColor = 'rgba(0,0,0,0.4)'
   ctx.shadowOffsetY = 6
-  ctx.fillText(String(score), cx, 720)
+  ctx.fillText(String(score), cx, 560)
   ctx.shadowColor = 'transparent'
   ctx.shadowOffsetY = 0
 
   // 單位 / 說明
   ctx.fillStyle = 'rgba(255,255,255,0.92)'
-  ctx.font = '600 46px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.fillText(unitText(mode, score), cx, 800)
+  ctx.font = '600 40px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(unitText(mode, score), cx, 626)
 
   // 最高分
   ctx.fillStyle = 'rgba(255,255,255,0.7)'
-  ctx.font = '500 36px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  ctx.fillText(`${t('bestScore')}: ${best}`, cx, 880)
+  ctx.font = '500 32px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(`${t('bestScore')}: ${best}`, cx, 678)
 
-  // CTA 膠囊
-  ctx.font = '700 40px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
-  const cta = t('shareCardCta')
-  const cw = ctx.measureText(cta).width + 80
-  roundRect(ctx, cx - cw / 2, 955, cw, 78, 39)
-  ctx.fillStyle = 'rgba(255,255,255,0.16)'
-  ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)'
-  ctx.lineWidth = 2
-  ctx.stroke()
+  // QR Code（白底面板，掃描回站）
+  const qrSize = 184
+  const qx = cx - qrSize / 2
+  const qy = 716
+  drawQR(ctx, gameUrl(), qx, qy, qrSize)
+
+  // QR 下方標語
   ctx.fillStyle = '#fff'
-  ctx.fillText(cta, cx, 1008)
+  ctx.font = '700 34px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(t('shareScanCta'), cx, qy + qrSize + 48)
+}
+
+// 在 (x,y) 畫白底 QR（含 quiet zone），編碼 url
+function drawQR(ctx, url, x, y, size) {
+  const qr = qrcode(0, 'M')
+  qr.addData(url)
+  qr.make()
+  const n = qr.getModuleCount()
+  const quiet = 3
+  const total = n + quiet * 2
+  const cell = size / total
+  ctx.save()
+  ctx.fillStyle = '#ffffff'
+  roundRect(ctx, x, y, size, size, 14)
+  ctx.fill()
+  ctx.fillStyle = '#101418'
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) {
+        ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell + 0.6, cell + 0.6)
+      }
+    }
+  }
+  ctx.restore()
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -133,12 +158,14 @@ export async function shareScore({ mode, score, best }) {
   if (!blob) return 'cancelled'
 
   const modeTitle = t(MODE_META[mode] ? MODE_META[mode].titleKey : 'appTitle')
-  const text = t('shareText').replace('{mode}', modeTitle).replace('{score}', unitText(mode, score))
+  const url = gameUrl()
+  // 文字附上網址：支援的平台會一併帶出可點連結（不支援時圖上仍有 QR 可掃）
+  const text = `${t('shareText').replace('{mode}', modeTitle).replace('{score}', unitText(mode, score))} ${url}`
   const file = new File([blob], 'worldcup-score.png', { type: 'image/png' })
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], text, title: t('appTitle') })
+      await navigator.share({ files: [file], text, url, title: t('appTitle') })
       return 'shared'
     } catch (e) {
       if (e && e.name === 'AbortError') return 'cancelled'
@@ -146,14 +173,14 @@ export async function shareScore({ mode, score, best }) {
     }
   }
   // 下載 PNG
-  const url = URL.createObjectURL(blob)
+  const dlUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url
+  a.href = dlUrl
   a.download = `worldcup-${mode}-${score}.png`
   document.body.appendChild(a)
   a.click()
   a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(dlUrl), 1000)
   return 'downloaded'
 }
 
@@ -176,4 +203,53 @@ export function bindShare(btn, mode, score) {
       }, 1600)
     }
   })
+}
+
+// 通用 OG 預覽圖（1200×630 橫式），給社群分享網址時的 og:image。
+// 在瀏覽器 render 後輸出存成 public/og.png（一次性資產）。
+export function renderOgCanvas(canonicalUrl = 'https://worldcup.jackie-yeh.com') {
+  const W = 1200
+  const H = 630
+  const cv = document.createElement('canvas')
+  cv.width = W
+  cv.height = H
+  const ctx = cv.getContext('2d')
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H)
+  bg.addColorStop(0, '#0c3b6e')
+  bg.addColorStop(0.5, '#1f6fb0')
+  bg.addColorStop(0.5, '#2f8b3d')
+  bg.addColorStop(1, '#1c5c28')
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'
+  for (let i = 0; i < 6; i += 2) ctx.fillRect(0, H * 0.5 + (i * H * 0.5) / 6, W, (H * 0.5) / 6)
+
+  // 左側文字
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#fff'
+  ctx.font = '800 92px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'
+  ctx.shadowOffsetY = 5
+  ctx.fillText(t('appTitle'), 80, 250)
+  ctx.shadowColor = 'transparent'
+  ctx.shadowOffsetY = 0
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'
+  ctx.font = '600 40px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(t('tagline'), 82, 320)
+  // 三模式
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'
+  ctx.font = '600 34px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(`${t('mode1Title')}  ·  ${t('mode2Title')}  ·  ${t('mode3Title')}`, 82, 400)
+
+  // 右側：大足球 + QR
+  drawBall(ctx, { cx: 880, cy: 240, r: 150 })
+  const qs = 150
+  drawQR(ctx, canonicalUrl, 1010, 430, qs)
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#fff'
+  ctx.font = '700 26px -apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  ctx.fillText(t('shareScanCta'), 1010 + qs / 2, 430 + qs + 36)
+
+  return cv
 }
