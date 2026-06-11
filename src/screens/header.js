@@ -15,12 +15,16 @@ import { CameraTracker, PointerTracker } from './headerTracker.js'
 
 const MODE = 'header'
 const GAME_SEC = 60
-const HEAD_UP_THRESH = 170 // 頭往上速度門檻 (px/s)，超過才算有效頂球
+const HEAD_SWING_THRESH = 230 // 頭擺動速度門檻 (px/s，任意方向)，超過才算有效頂球
 const HEAD_X_GAIN = 1.7 // 頭左右移動 → 頂球點的放大（小幅擺頭即可涵蓋全寬）
 const HEAD_Y_GAIN = 1.5
 const GRAVITY = 1000 // 傳中拋物線重力（較強 → 弧線明顯、落得快）
 const T_OUT = 0.55 // 頂出後飛向球門的時間（快、俐落）
 const FAR_SCALE = 0.4 // 飛抵球門時的縮放（往前飛去的深度感）
+// 頂出方向 = 頭擺動向量 + 撞擊點，再混入朝球門偏置（維持可玩）
+const SWING_AIM = 0.22 // 頭水平擺動速度 → 球橫向落點
+const OFFSET_AIM = 1.4 // 撞擊點（頭在球左/右側）→ 橫向落點
+const GOAL_BIAS = 0.42 // 朝球門中心的偏置 (0=純動量, 1=一律正中)
 
 export function createHeaderScreen() {
   const el = document.createElement('div')
@@ -128,28 +132,33 @@ export function createHeaderScreen() {
       headed: false,
       scored: false,
       willScore: false,
+      outDur: T_OUT,
       x0: 0,
       y0: 0,
       x1: 0,
       y1: 0,
-      prevY: 0,
     }
   }
 
+  // 動量轉移：頂出方向由頭擺動向量 + 撞擊點決定，再混入朝球門偏置。
   function headerBall(b) {
     b.phase = 'out'
     b.t = 0
     b.x0 = b.x
     b.y0 = b.y
-    // 頭在球左/右側 + 頭部水平動量 → 頂出方向偏移
-    const off = (b.x - head.x) * 1.5 + head.vx * 0.15
-    const goalX = clamp(goal.cx + off, goal.cx - goal.halfW * 2.2, goal.cx + goal.halfW * 2.2)
-    b.willScore = Math.abs(goalX - goal.cx) < goal.halfW - b.baseR * FAR_SCALE * 0.5
-    b.x1 = goalX
+    // 純動量落點：頭往哪掃球往哪去（同向）+ 頭在球哪一側（撞擊點）
+    const rawX = b.x + head.vx * SWING_AIM + (b.x - head.x) * OFFSET_AIM
+    // 混入朝球門中心的偏置，避免狂掃把球甩到莫名其妙的地方
+    const goalX = rawX + (goal.cx - rawX) * GOAL_BIAS
+    b.x1 = clamp(goalX, goal.cx - goal.halfW * 2.4, goal.cx + goal.halfW * 2.4)
+    b.willScore = Math.abs(b.x1 - goal.cx) < goal.halfW - b.baseR * FAR_SCALE * 0.5
     b.y1 = goal.mouthY - goal.h * 0.35 // 飛進球門內
+    // 頂出速度越快（擺得越猛）飛得越俐落
+    const swing = Math.hypot(head.vx, head.vy)
+    b.outDur = clamp(T_OUT * (1 - (swing - HEAD_SWING_THRESH) / 2600), 0.4, T_OUT)
     b.headed = true
     b.sqv += 6
-    b.squashAngle = Math.PI / 2
+    b.squashAngle = Math.atan2(b.y1 - b.y0, b.x1 - b.x0)
     state.flash = 0.12
     sound.kick()
   }
@@ -240,15 +249,16 @@ export function createHeaderScreen() {
       b.x += b.vx * dt
       b.y += b.vy * dt
 
-      // 頂球判定
+      // 頂球判定：頭往任意方向擺動夠快 → 動量轉移頂球；太慢 → 只輕彈
       if (head.active && state.contactCd <= 0) {
         const d = Math.hypot(b.x - head.x, b.y - head.y)
         if (d < b.r + head.r) {
-          if (head.vy < -HEAD_UP_THRESH) {
+          const swing = Math.hypot(head.vx, head.vy)
+          if (swing > HEAD_SWING_THRESH) {
             headerBall(b)
           } else {
-            // 碰到沒往上頂 → 輕彈，無力道
-            b.vy = -260
+            // 碰到但頭幾乎沒動 → 輕彈，無力道
+            b.vy = -240
             b.vx += (b.x - head.x) * 1.0
             b.sqv += 3
             b.squashAngle = Math.PI / 2
@@ -264,7 +274,7 @@ export function createHeaderScreen() {
       }
     } else if (b.phase === 'out') {
       // 頂出 → 縮小飛向遠方球門
-      const p = clamp(b.t / T_OUT, 0, 1)
+      const p = clamp(b.t / (b.outDur || T_OUT), 0, 1)
       b.scale = 1 + (FAR_SCALE - 1) * p
       b.x = b.x0 + (b.x1 - b.x0) * p
       b.y = b.y0 + (b.y1 - b.y0) * p - Math.sin(Math.PI * p) * H * 0.05
@@ -397,24 +407,21 @@ export function createHeaderScreen() {
 
   function drawHeadMarker() {
     const b = state.ball
-    const near = b && Math.hypot(b.x - head.x, b.y - head.y) < b.r + head.r + 30
+    const near = b && b.phase === 'cross' && Math.hypot(b.x - head.x, b.y - head.y) < b.r + head.r + 36
     ctx.save()
     ctx.strokeStyle = near ? 'rgba(255,80,60,0.95)' : 'rgba(255,211,61,0.9)'
     ctx.lineWidth = near ? 4 : 3
     ctx.beginPath()
     ctx.arc(head.x, head.y, head.r, 0, Math.PI * 2)
     ctx.stroke()
-    // 往上頂提示
+    // 可頂擊：外圈脈動提示「擺頭撞球」（任意方向）
     if (near) {
-      ctx.fillStyle = 'rgba(255,80,60,0.9)'
-      const ax = head.x
-      const ay = head.y - head.r - 8
+      const pulse = head.r + 8 + Math.sin(state.last / 90) * 4
+      ctx.strokeStyle = 'rgba(255,80,60,0.5)'
+      ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.moveTo(ax, ay - 15)
-      ctx.lineTo(ax - 10, ay)
-      ctx.lineTo(ax + 10, ay)
-      ctx.closePath()
-      ctx.fill()
+      ctx.arc(head.x, head.y, pulse, 0, Math.PI * 2)
+      ctx.stroke()
     }
     ctx.restore()
   }

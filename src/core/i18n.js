@@ -67,7 +67,7 @@ const DICT = {
     hdGoal: '進球！',
     hdMiss: '漏接！',
     hdTime: '時間',
-    hdHeadHint: '往上頂！',
+    hdHeadHint: '擺頭撞球，朝球門頂出！',
   },
   en: {
     appTitle: 'World Cup Mini Games',
@@ -136,7 +136,7 @@ const DICT = {
     hdGoal: 'GOAL!',
     hdMiss: 'Missed!',
     hdTime: 'Time',
-    hdHeadHint: 'Head it up!',
+    hdHeadHint: 'Swing your head to head it goalward!',
   },
 }
 
