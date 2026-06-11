@@ -1,7 +1,8 @@
 // 模式二：頭鎚射門（攝影機 AR）。
-// 球從上方落下，玩家用頭（攝影機追蹤額頭位置）往上頂，把球頂進上方球門。
-// 「往上頂」要頭真的往上移動才有力道（站著不動撞到沒用）。
-// 攝影機不可用 / 拒絕授權 → 自動降級為手指 / 滑鼠控制頂球點，同一套遊戲迴圈。
+// 球從遠方球門「朝你飛來」（由小變大撲面），你把頭（攝影機追蹤額頭）移到落點、
+// 在球到臉前的瞬間「往上一頂」→ 球反向縮小飛向遠方球門得分。
+// 用 2.5D 深度（z + 縮放）營造「迎來 → 頂走」的對撞頭鎚感。
+// 攝影機不可用 / 拒絕授權 → 自動降級為手指 / 滑鼠控制頂球點，同一套迴圈。
 
 import { t } from '../core/i18n.js'
 import { sound } from '../core/sound.js'
@@ -14,17 +15,19 @@ import { CameraTracker, PointerTracker } from './headerTracker.js'
 
 const MODE = 'header'
 const GAME_SEC = 60
-const GRAVITY = 1250 // px/s²
-const HEAD_UP_THRESH = 220 // 頭向上速度門檻 (px/s)，超過才算有效頂球
-const HEADER_BASE = 760 // 頂球基礎力道
-const HEADER_MAX = 1500
+const HEAD_UP_THRESH = 180 // 頭向上速度門檻 (px/s)，超過才算有效頂球
+const T_IN = 1.5 // 來球飛行時間 (s)
+const T_OUT = 0.85 // 頂出去飛向球門時間
+const T_DROP = 0.9 // 沒頂到掉落時間
+const FAR_SCALE = 0.32 // 遠方(球門處)球的縮放
+const NEAR_SCALE = 1.0 // 到臉前的縮放
+const CONTACT_FROM = 0.74 // 來球進度 > 此值才進入可頂擊窗
 
 export function createHeaderScreen() {
   const el = document.createElement('div')
   el.className = 'screen'
 
-  // video 作為攝影機來源（不直接顯示，改畫進 canvas 以統一座標）。
-  // 用「離屏但仍渲染」而非 display:none——後者在部分瀏覽器不會產生影格。
+  // video 作為攝影機來源（離屏渲染，畫進 canvas 統一座標）
   const video = document.createElement('video')
   video.setAttribute('playsinline', '')
   video.muted = true
@@ -55,7 +58,7 @@ export function createHeaderScreen() {
       <div class="hd-timewrap"><i id="htime"></i></div>
     </div>
     <div class="pk-msg" id="msg"></div>
-    <div class="hd-cue" id="cue">${t('hdCalibPointer')}</div>
+    <div class="hd-cue" id="cue"></div>
   `
   el.appendChild(hud)
 
@@ -73,7 +76,7 @@ export function createHeaderScreen() {
   let tracker = null
   let usingCamera = false
 
-  const goal = { cx: 0, halfW: 0, mouthY: 0, h: 0, shake: 0 }
+  const goal = { cx: 0, halfW: 0, y: 0, h: 0, shake: 0 }
   const state = {
     raf: 0,
     last: 0,
@@ -82,11 +85,11 @@ export function createHeaderScreen() {
     timeLeft: GAME_SEC,
     ball: null,
     msgT: 0,
-    contactCd: 0, // 頂球冷卻，避免單次接觸多次觸發
     flash: 0,
   }
 
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
+  const lerp = (a, b, p) => a + (b - a) * p
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -96,26 +99,39 @@ export function createHeaderScreen() {
     canvas.height = Math.round(H * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     goal.cx = W / 2
-    goal.halfW = clamp(W * 0.3, 110, 210)
-    goal.h = goal.halfW * 0.95
-    goal.mouthY = H * 0.24
+    goal.halfW = clamp(W * 0.17, 66, 140)
+    goal.h = goal.halfW * 0.78
+    goal.y = H * 0.15 // 遠方球門中心螢幕高度
   }
 
+  // 一顆來球：從球門(遠、小、上) 飛向 落點(近、大、下)
   function newBall() {
-    const r = Math.max(26, Math.min(W, H) * 0.075)
+    const baseR = Math.max(30, Math.min(W, H) * 0.085)
+    const strikeX = lerp(W * 0.28, W * 0.72, Math.random())
+    const strikeY = H * (0.52 + Math.random() * 0.12)
     return {
-      x: goal.cx + (Math.random() - 0.5) * W * 0.4,
-      y: -r,
-      vx: (Math.random() - 0.5) * 120,
-      vy: 320,
-      r,
+      phase: 'in', // in | out | drop
+      t: 0,
+      baseR,
+      // 路徑端點（螢幕座標）
+      x0: goal.cx,
+      y0: goal.y,
+      x1: strikeX,
+      y1: strikeY,
+      strikeX,
+      strikeY,
+      // 即時（render/collision 用）
+      bx: goal.cx,
+      by: goal.y,
+      scale: FAR_SCALE,
       rot: 0,
-      vrot: (Math.random() - 0.5) * 6,
+      vrot: (Math.random() - 0.5) * 5,
       sq: 0,
       sqv: 0,
       squashAngle: 0,
-      prevY: -r,
-      scored: false,
+      headed: false,
+      goalX: 0, // out 階段最終落到球門平面的 x
+      willScore: false,
     }
   }
 
@@ -134,7 +150,6 @@ export function createHeaderScreen() {
     state.ball = newBall()
     scoreEl.textContent = '0'
     hideOverlay()
-    cueEl.style.opacity = '1'
     cueEl.textContent = usingCamera ? t('hdHeadHint') : t('hdCalibPointer')
     sound.whistle(1)
   }
@@ -147,7 +162,34 @@ export function createHeaderScreen() {
     showOverlay(endOverlay(state.score, isRecord))
   }
 
-  // ---------- 物理 / 頂球 ----------
+  // ---------- 頂球：把球從 in 切到 out（飛向球門） ----------
+  function headerBall(b, hx) {
+    b.phase = 'out'
+    b.t = 0
+    b.x0 = b.bx
+    b.y0 = b.by
+    // 瞄準：頭頂到球的哪一側決定方向（頭偏左 → 球往右），加頭部水平動量
+    const off = (b.bx - hx) * 1.1 + (tracker.vx || 0) * 0.12
+    b.goalX = clamp(goal.cx + off, goal.cx - goal.halfW * 2.4, goal.cx + goal.halfW * 2.4)
+    b.willScore = Math.abs(b.goalX - goal.cx) < goal.halfW - b.baseR * FAR_SCALE * 0.5
+    b.x1 = b.goalX
+    b.y1 = goal.y
+    b.headed = true
+    b.sqv += 6
+    b.squashAngle = Math.PI / 2
+    state.flash = 0.12
+    sound.kick()
+  }
+
+  function missDrop(b) {
+    b.phase = 'drop'
+    b.t = 0
+    b.x0 = b.bx
+    b.y0 = b.by
+    showMsg(t('hdMiss'), 'bad')
+  }
+
+  // ---------- 更新 ----------
   function update(dt) {
     if (state.msgT > 0) {
       state.msgT -= dt
@@ -155,10 +197,8 @@ export function createHeaderScreen() {
     }
     if (goal.shake > 0) goal.shake = Math.max(0, goal.shake - dt * 2.4)
     if (state.flash > 0) state.flash -= dt
-    if (state.contactCd > 0) state.contactCd -= dt
 
     if (tracker) tracker.update(dt, W, H)
-
     if (!state.running) return
 
     state.timeLeft -= dt
@@ -169,78 +209,64 @@ export function createHeaderScreen() {
     }
 
     const b = state.ball
-    b.prevY = b.y
-    b.vy += GRAVITY * dt
-    b.x += b.vx * dt
-    b.y += b.vy * dt
+    b.t += dt
     b.rot += b.vrot * dt
-    b.vrot *= 0.99
-
     // 擠壓彈簧
     b.sqv += (-900 * b.sq - 18 * b.sqv) * dt
     b.sq += b.sqv * dt
-    b.sq = clamp(b.sq, -0.18, 0.18)
+    b.sq = clamp(b.sq, -0.2, 0.2)
 
-    // 左右牆反彈
-    if (b.x - b.r < 0) {
-      b.x = b.r
-      b.vx = Math.abs(b.vx) * 0.7
-    } else if (b.x + b.r > W) {
-      b.x = W - b.r
-      b.vx = -Math.abs(b.vx) * 0.7
-    }
-
-    // 頂球判定
-    if (tracker && tracker.active && state.contactCd <= 0) {
-      const hr = tracker.headR || 56
-      const d = Math.hypot(b.x - tracker.x, b.y - tracker.y)
-      if (d < b.r + hr) {
-        const goingUp = tracker.vy < -HEAD_UP_THRESH
-        if (goingUp) {
-          // 有效頂球：力道隨頭往上速度增加，方向瞄準球門 + 帶頭部水平動量
-          const power = clamp(HEADER_BASE + Math.abs(tracker.vy) * 1.4, HEADER_BASE, HEADER_MAX)
-          b.vy = -power
-          b.vx = (goal.cx - b.x) * 2.4 + tracker.vx * 0.35
-          b.vx = clamp(b.vx, -700, 700)
-          b.vrot = -b.vx / b.r
-          b.sqv += 5.5
-          b.squashAngle = Math.atan2(-b.vy, b.vx)
-          state.contactCd = 0.25
-          state.flash = 0.12
-          sound.kick()
-        } else {
-          // 站著被撞到：只輕輕彈開，沒有上頂力道
-          b.vy = -260
-          b.vx += (b.x - tracker.x) * 1.2
-          b.sqv += 3
-          b.squashAngle = Math.PI / 2
-          state.contactCd = 0.2
-          sound.bounce()
+    if (b.phase === 'in') {
+      const p = clamp(b.t / T_IN, 0, 1)
+      const e = p * p // 加速逼近（撲面感）
+      b.scale = lerp(FAR_SCALE, NEAR_SCALE, e)
+      b.bx = lerp(b.x0, b.x1, p)
+      b.by = lerp(b.y0, b.y1, p) - Math.sin(Math.PI * p) * H * 0.06 // 微弧線
+      // 可頂擊窗：球接近臉時
+      if (p >= CONTACT_FROM && tracker && tracker.active) {
+        const rr = b.baseR * b.scale
+        const hr = tracker.headR || 56
+        const d = Math.hypot(b.bx - tracker.x, b.by - tracker.y)
+        if (d < rr + hr) {
+          if (tracker.vy < -HEAD_UP_THRESH) headerBall(b, tracker.x)
+          else {
+            // 碰到但沒往上頂 → 沒頂好，掉落
+            b.sqv += 3
+            b.squashAngle = Math.PI / 2
+            sound.bounce()
+            missDrop(b)
+          }
         }
       }
-    }
-
-    // 進球：往上穿過球門口且在門柱間
-    if (!b.scored && b.vy < 0 && b.prevY >= goal.mouthY && b.y < goal.mouthY) {
-      if (Math.abs(b.x - goal.cx) < goal.halfW - b.r * 0.4) {
-        b.scored = true
-        state.score += 1
-        scoreEl.textContent = state.score
-        scoreEl.classList.remove('pop')
-        void scoreEl.offsetWidth
-        scoreEl.classList.add('pop')
-        goal.shake = 0.6
-        showMsg(t('hdGoal'), 'good')
-        sound.swish()
-        sound.point()
-        sound.crowd(1.0, 0.25)
+      if (b.phase === 'in' && p >= 1) missDrop(b) // 沒接到
+    } else if (b.phase === 'out') {
+      const p = clamp(b.t / T_OUT, 0, 1)
+      b.scale = lerp(NEAR_SCALE, FAR_SCALE, p)
+      b.bx = lerp(b.x0, b.x1, p)
+      b.by = lerp(b.y0, b.y1, p) - Math.sin(Math.PI * p) * H * 0.05
+      if (p >= 1) {
+        if (b.willScore) {
+          state.score += 1
+          scoreEl.textContent = state.score
+          scoreEl.classList.remove('pop')
+          void scoreEl.offsetWidth
+          scoreEl.classList.add('pop')
+          goal.shake = 0.6
+          showMsg(t('hdGoal'), 'good')
+          sound.swish()
+          sound.point()
+          sound.crowd(1.0, 0.25)
+        } else {
+          showMsg(t('hdMiss'), 'bad')
+        }
+        state.ball = newBall()
       }
-    }
-
-    // 重生：飛出上方（含射偏 / 進球後）或落到底線
-    if (b.y + b.r < -10 || b.y - b.r > H + 10) {
-      if (!b.scored && b.y - b.r > H) showMsg(t('hdMiss'), 'bad')
-      state.ball = newBall()
+    } else if (b.phase === 'drop') {
+      const p = clamp(b.t / T_DROP, 0, 1)
+      b.by = lerp(b.y0, H + b.baseR * NEAR_SCALE, p * p)
+      b.bx = b.x0 + (b.bx - b.x0)
+      b.scale = NEAR_SCALE
+      if (p >= 1) state.ball = newBall()
     }
   }
 
@@ -248,35 +274,37 @@ export function createHeaderScreen() {
   function render() {
     ctx.clearRect(0, 0, W, H)
 
-    // 背景：攝影機畫面 或 漸層球場
     let drew = false
     if (usingCamera && tracker && tracker.drawVideo) drew = tracker.drawVideo(ctx, W, H)
     if (!drew) {
       const sky = ctx.createLinearGradient(0, 0, 0, H)
       sky.addColorStop(0, '#8fd0f2')
-      sky.addColorStop(0.55, '#bfe6ff')
-      sky.addColorStop(0.55, '#3f9b4b')
+      sky.addColorStop(0.5, '#bfe6ff')
+      sky.addColorStop(0.5, '#3f9b4b')
       sky.addColorStop(1, '#2e7a3a')
       ctx.fillStyle = sky
       ctx.fillRect(0, 0, W, H)
     } else {
-      // 攝影機畫面上加一層暗化，讓前景球門 / 球更清楚
       ctx.fillStyle = 'rgba(0,0,0,0.12)'
       ctx.fillRect(0, 0, W, H)
     }
 
     drawGoal()
 
+    const b = state.ball
+    // 落點提示（來球期間顯示目標環，引導把頭移過去）
+    if (b && b.phase === 'in') drawStrikeTarget(b)
+
     // 頭部 / 指標標記
-    if (tracker && tracker.active) drawHeadMarker()
+    if (tracker && tracker.active) drawHeadMarker(b)
 
     // 球
-    const b = state.ball
     if (b) {
+      const r = b.baseR * b.scale
       drawBall(ctx, {
-        cx: b.x,
-        cy: b.y,
-        r: b.r,
+        cx: b.bx,
+        cy: b.by,
+        r,
         rotation: b.rot,
         sx: 1 - b.sq,
         sy: 1 + b.sq * 0.5,
@@ -285,24 +313,23 @@ export function createHeaderScreen() {
     }
 
     if (state.flash > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${(state.flash / 0.12) * 0.18})`
+      ctx.fillStyle = `rgba(255,255,255,${(state.flash / 0.12) * 0.2})`
       ctx.fillRect(0, 0, W, H)
     }
   }
 
   function drawGoal() {
-    const sx = goal.shake > 0 ? (Math.random() - 0.5) * goal.shake * 7 : 0
+    const sx = goal.shake > 0 ? (Math.random() - 0.5) * goal.shake * 6 : 0
     const cx = goal.cx + sx
     const x0 = cx - goal.halfW
     const x1 = cx + goal.halfW
-    const topY = goal.mouthY - goal.h
-    const botY = goal.mouthY
+    const topY = goal.y - goal.h / 2
+    const botY = goal.y + goal.h / 2
 
-    // 網
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+    ctx.strokeStyle = 'rgba(255,255,255,0.38)'
     ctx.lineWidth = 1
-    const cols = 9
-    const rows = 6
+    const cols = 7
+    const rows = 4
     for (let i = 0; i <= cols; i++) {
       const x = x0 + ((x1 - x0) * i) / cols
       ctx.beginPath()
@@ -317,10 +344,8 @@ export function createHeaderScreen() {
       ctx.lineTo(x1, y)
       ctx.stroke()
     }
-
-    // 門柱 + 橫楣
     ctx.strokeStyle = '#f4f6f7'
-    ctx.lineWidth = Math.max(5, goal.halfW * 0.06)
+    ctx.lineWidth = Math.max(4, goal.halfW * 0.075)
     ctx.lineCap = 'round'
     ctx.beginPath()
     ctx.moveTo(x0, botY)
@@ -328,35 +353,41 @@ export function createHeaderScreen() {
     ctx.lineTo(x1, topY)
     ctx.lineTo(x1, botY)
     ctx.stroke()
-    // 門口提示線
-    ctx.strokeStyle = 'rgba(255,211,61,0.6)'
-    ctx.lineWidth = 2
-    ctx.setLineDash([10, 8])
-    ctx.beginPath()
-    ctx.moveTo(x0, botY)
-    ctx.lineTo(x1, botY)
-    ctx.stroke()
-    ctx.setLineDash([])
   }
 
-  function drawHeadMarker() {
+  function drawStrikeTarget(b) {
+    const p = clamp(b.t / T_IN, 0, 1)
+    const a = 0.25 + 0.5 * p
+    const r = lerp(46, 26, p) + Math.sin(b.t * 12) * 3
+    ctx.save()
+    ctx.strokeStyle = `rgba(255,211,61,${a})`
+    ctx.lineWidth = 3
+    ctx.setLineDash([6, 6])
+    ctx.beginPath()
+    ctx.arc(b.strikeX, b.strikeY, r, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
+  }
+
+  function drawHeadMarker(b) {
     const hr = tracker.headR || 56
     ctx.save()
-    ctx.strokeStyle = 'rgba(255,211,61,0.9)'
-    ctx.lineWidth = 3
+    // 在可頂擊窗時把環變亮、提示往上頂
+    const hot = b && b.phase === 'in' && b.t / T_IN >= CONTACT_FROM
+    ctx.strokeStyle = hot ? 'rgba(255,80,60,0.95)' : 'rgba(255,211,61,0.85)'
+    ctx.lineWidth = hot ? 4 : 3
     ctx.beginPath()
     ctx.arc(tracker.x, tracker.y, hr, 0, Math.PI * 2)
     ctx.stroke()
-    // 往上頂的箭頭提示（頭在球下方且球接近時）
-    const b = state.ball
-    if (b && b.y < tracker.y && Math.abs(b.x - tracker.x) < hr * 2 && b.y > goal.mouthY) {
-      ctx.fillStyle = 'rgba(255,211,61,0.85)'
+    if (hot) {
+      ctx.fillStyle = 'rgba(255,80,60,0.9)'
       const ax = tracker.x
-      const ay = tracker.y - hr - 10
+      const ay = tracker.y - hr - 8
       ctx.beginPath()
-      ctx.moveTo(ax, ay - 16)
-      ctx.lineTo(ax - 11, ay)
-      ctx.lineTo(ax + 11, ay)
+      ctx.moveTo(ax, ay - 15)
+      ctx.lineTo(ax - 10, ay)
+      ctx.lineTo(ax + 10, ay)
       ctx.closePath()
       ctx.fill()
     }
@@ -434,7 +465,7 @@ export function createHeaderScreen() {
 
   // ---------- 啟動：攝影機 / 降級 ----------
   async function startCamera() {
-    if (tracker) tracker.stop() // 重玩再選攝影機時，釋放上一個 tracker
+    if (tracker) tracker.stop()
     tracker = null
     showOverlay(loadingOverlay(t('hdLoading')))
     const cam = new CameraTracker(video)
@@ -444,7 +475,6 @@ export function createHeaderScreen() {
       usingCamera = true
       beginGame()
     } catch (err) {
-      // 不默默吞掉：印出真正原因（哪一關失敗）方便除錯
       console.error('[頭鎚射門] 攝影機/模型啟動失敗', err && err.stage, err)
       cam.stop()
       const reason = err && err.stage === 'model' ? '頭部追蹤模型載入失敗' : '無法取得攝影機'
@@ -473,7 +503,14 @@ export function createHeaderScreen() {
   ro.observe(game)
 
   if (location.search.includes('fgtest')) {
-    window.__hd = { state, goal, get tracker() { return tracker }, startPointer }
+    window.__hd = {
+      state,
+      goal,
+      get tracker() {
+        return tracker
+      },
+      startPointer,
+    }
   }
 
   requestAnimationFrame(() => {
