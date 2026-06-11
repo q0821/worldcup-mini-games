@@ -34,20 +34,16 @@ export function makeCamera(W, H) {
 
 // ---------- 背景（看台 / 草皮 / 白線），resize 時預渲染一次 ----------
 // 若提供 standsImg（AI 生成看台圖），取代程序繪製的天空 + 看台區。
-// 將圖片 cover-fit 進指定矩形（含裁切）
-function coverImageInto(g, img, x, y, w, h) {
-  const scale = Math.max(w / img.width, h / img.height)
-  const dw = img.width * scale
-  const dh = img.height * scale
-  g.save()
-  g.beginPath()
-  g.rect(x, y, w, h)
-  g.clip()
-  g.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
-  g.restore()
+// 整座球場一張圖：在圖的草地線切兩段，看台段拉進地平線以上、草地段拉進以下。
+// 接縫落在圖自己的草地線上 → 無縫，且草地線對齊 horizonY 讓 3D 球門站在草地上。
+const STADIUM_CUT = 0.52 // 圖中「看台 / 草地」分界的高度比例
+function drawStadium(g, img, W, H, horizonY) {
+  const cut = img.height * STADIUM_CUT
+  g.drawImage(img, 0, 0, img.width, cut, 0, 0, W, Math.max(1, horizonY)) // 看台段
+  g.drawImage(img, 0, cut, img.width, img.height - cut, 0, horizonY, W, Math.max(1, H - horizonY)) // 草地段
 }
 
-export function renderBackground(cam, dpr, standsImg = null, grassImg = null) {
+export function renderBackground(cam, dpr, stadiumImg = null) {
   const { W, H, horizonY, groundY } = cam
   const cv = document.createElement('canvas')
   cv.width = Math.round(W * dpr)
@@ -55,25 +51,11 @@ export function renderBackground(cam, dpr, standsImg = null, grassImg = null) {
   const g = cv.getContext('2d')
   g.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  if (standsImg) {
-    // AI 看台圖：cover 進地平線以上區域
-    const region = horizonY + 2
-    const ir = standsImg.width / standsImg.height
-    let dw = W
-    let dh = dw / ir
-    if (dh < region) {
-      dh = region
-      dw = dh * ir
-    }
-    g.drawImage(standsImg, (W - dw) / 2, region - dh, dw, dh)
+  if (stadiumImg) {
+    drawStadium(g, stadiumImg, W, H, horizonY)
   } else {
+    // 退回程序繪製：看台 + 割草條紋 + 廣告看板 + 白線
     drawStands(g, W, horizonY)
-  }
-
-  // 草皮：真實草地照片（cover 進地平線以下），否則退回程序割草條紋
-  if (grassImg) {
-    coverImageInto(g, grassImg, 0, horizonY - 1, W, H - horizonY + 1)
-  } else {
     const Z_MIN = -1.2
     for (let i = 0; ; i++) {
       const zFar = 16 - i * 1.4
@@ -84,43 +66,27 @@ export function renderBackground(cam, dpr, standsImg = null, grassImg = null) {
       g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
       g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
     }
+    drawHoardings(g, cam)
+    const line = (x1, z1, x2, z2) => {
+      const a = cam.project(x1, 0, z1)
+      const b = cam.project(x2, 0, z2)
+      g.strokeStyle = 'rgba(250,250,248,0.92)'
+      g.lineWidth = Math.max(1.5, 0.07 * cam.K * ((a.s + b.s) / 2))
+      g.beginPath()
+      g.moveTo(a.x, a.y)
+      g.lineTo(b.x, b.y)
+      g.stroke()
+    }
+    line(-11, GOAL.z, 11, GOAL.z)
+    line(-9.16, GOAL.z, -9.16, GOAL.z - 5.5)
+    line(9.16, GOAL.z, 9.16, GOAL.z - 5.5)
+    line(-9.16, GOAL.z - 5.5, 9.16, GOAL.z - 5.5)
   }
-  // 草皮縱深明暗（遠處偏冷灰、近處飽和）
-  const tint = g.createLinearGradient(0, horizonY, 0, H)
-  tint.addColorStop(0, 'rgba(190,215,235,0.18)')
-  tint.addColorStop(0.35, 'rgba(190,215,235,0)')
-  tint.addColorStop(1, 'rgba(0,30,0,0.12)')
-  g.fillStyle = tint
-  g.fillRect(0, horizonY, W, H - horizonY)
-
-  // 廣告看板（球門後方，需畫在草皮之後才不被蓋掉）
-  drawHoardings(g, cam)
-
-  // 白線：球門線 + 小禁區 + 罰球點
-  const line = (x1, z1, x2, z2) => {
-    const a = cam.project(x1, 0, z1)
-    const b = cam.project(x2, 0, z2)
-    g.strokeStyle = 'rgba(250,250,248,0.92)'
-    g.lineWidth = Math.max(1.5, 0.07 * cam.K * ((a.s + b.s) / 2))
-    g.beginPath()
-    g.moveTo(a.x, a.y)
-    g.lineTo(b.x, b.y)
-    g.stroke()
-  }
-  line(-11, GOAL.z, 11, GOAL.z) // 球門線
-  line(-9.16, GOAL.z, -9.16, GOAL.z - 5.5) // 小禁區左
-  line(9.16, GOAL.z, 9.16, GOAL.z - 5.5) // 小禁區右
-  line(-9.16, GOAL.z - 5.5, 9.16, GOAL.z - 5.5) // 小禁區前緣
-  const spot = cam.project(0, 0, 0)
-  g.fillStyle = 'rgba(250,250,248,0.95)'
-  g.beginPath()
-  g.ellipse(spot.x, spot.y, 0.16 * cam.K, 0.05 * cam.K, 0, 0, Math.PI * 2)
-  g.fill()
 
   // 角落 vignette
   const vig = g.createRadialGradient(W / 2, H * 0.55, H * 0.45, W / 2, H * 0.55, H * 0.95)
   vig.addColorStop(0, 'rgba(0,0,0,0)')
-  vig.addColorStop(1, 'rgba(0,10,0,0.22)')
+  vig.addColorStop(1, 'rgba(0,10,0,0.2)')
   g.fillStyle = vig
   g.fillRect(0, 0, W, H)
 
@@ -372,7 +338,7 @@ export function makeRevView(W, H) {
   }
 }
 
-export function renderBackgroundRev(view, dpr, standsImg = null, grassImg = null) {
+export function renderBackgroundRev(view, dpr, stadiumImg = null) {
   const { W, H, horizonY, baseY, groundY } = view
   const cv = document.createElement('canvas')
   cv.width = Math.round(W * dpr)
@@ -380,25 +346,11 @@ export function renderBackgroundRev(view, dpr, standsImg = null, grassImg = null
   const g = cv.getContext('2d')
   g.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  // 遠端看台（罰球點後方）：有 AI 看台圖則用圖（cover 進地平線以上），否則程序繪製
-  if (standsImg) {
-    const region = horizonY + 2
-    const ir = standsImg.width / standsImg.height
-    let dw = W
-    let dh = dw / ir
-    if (dh < region) {
-      dh = region
-      dw = dh * ir
-    }
-    g.drawImage(standsImg, (W - dw) / 2, region - dh, dw, dh)
+  // 整座球場一張圖（看台 / 草地分段填），否則退回程序看台 + 條紋 + 白線
+  if (stadiumImg) {
+    drawStadium(g, stadiumImg, W, H, horizonY)
   } else {
     drawStands(g, W, horizonY)
-  }
-
-  // 草皮：真實草地照片（cover 進地平線以下），否則退回程序條紋
-  if (grassImg) {
-    coverImageInto(g, grassImg, 0, horizonY - 1, W, H - horizonY + 1)
-  } else {
     const Z_MIN = -2.2
     for (let i = 0; ; i++) {
       const zFar = 30 - i * 2.4
@@ -409,33 +361,26 @@ export function renderBackgroundRev(view, dpr, standsImg = null, grassImg = null
       g.fillStyle = i % 2 === 0 ? '#3f9b4b' : '#379145'
       g.fillRect(0, yTop - 0.5, W, yBot - yTop + 1)
     }
+    const line = (x1, z1, x2, z2) => {
+      const a = view.project(x1, 0, z1)
+      const b = view.project(x2, 0, z2)
+      g.strokeStyle = 'rgba(250,250,248,0.9)'
+      g.lineWidth = Math.max(1.5, 0.09 * view.Kx * ((a.s + b.s) / 2))
+      g.beginPath()
+      g.moveTo(a.x, a.y)
+      g.lineTo(b.x, b.y)
+      g.stroke()
+    }
+    line(-11, 0, 11, 0)
+    line(-9.16, 0, -9.16, 5.5)
+    line(9.16, 0, 9.16, 5.5)
+    line(-9.16, 5.5, 9.16, 5.5)
   }
 
-  // 白線：球門線（腳下）、小禁區、罰球點
-  const line = (x1, z1, x2, z2) => {
-    const a = view.project(x1, 0, z1)
-    const b = view.project(x2, 0, z2)
-    g.strokeStyle = 'rgba(250,250,248,0.9)'
-    g.lineWidth = Math.max(1.5, 0.09 * view.Kx * ((a.s + b.s) / 2))
-    g.beginPath()
-    g.moveTo(a.x, a.y)
-    g.lineTo(b.x, b.y)
-    g.stroke()
-  }
-  line(-11, 0, 11, 0)
-  line(-9.16, 0, -9.16, 5.5)
-  line(9.16, 0, 9.16, 5.5)
-  line(-9.16, 5.5, 9.16, 5.5)
-  const spot = view.project(0, 0, 11)
-  g.fillStyle = 'rgba(250,250,248,0.95)'
-  g.beginPath()
-  g.ellipse(spot.x, spot.y, 0.16 * view.Kx * spot.s * 2.2, 0.05 * view.Ky * spot.s * 2.2, 0, 0, Math.PI * 2)
-  g.fill()
-
-  // 門內地面（球門線之後到畫面底）壓暗一點
+  // 門內地面（球門線之後到畫面底）壓暗一點，墊出門前空間
   const inner = g.createLinearGradient(0, baseY, 0, H)
-  inner.addColorStop(0, 'rgba(0,20,0,0.18)')
-  inner.addColorStop(1, 'rgba(0,20,0,0.32)')
+  inner.addColorStop(0, 'rgba(0,20,0,0.14)')
+  inner.addColorStop(1, 'rgba(0,20,0,0.28)')
   g.fillStyle = inner
   g.fillRect(0, baseY, W, H - baseY)
 
