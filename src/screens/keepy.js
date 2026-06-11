@@ -94,7 +94,6 @@ export function createKeepyScreen() {
       r,
       r0: r, // 原始半徑 (球會隨分數略縮小)
       rot: 0,
-      vrot: 0,
       sx: 1,
       sy: 1,
       squashAngle: 0,
@@ -155,8 +154,6 @@ export function createKeepyScreen() {
       b.vx += (Math.random() < 0.5 ? -1 : 1) * MISHIT_JOLT * (0.5 + Math.random() * 0.5)
     }
     b.vx = clamp(b.vx, -1400, 1400)
-    // 自轉方向與踢擊側一致 (側踢帶旋轉)，噴得越猛轉越快
-    b.vrot = -(b.vx / b.r) * 0.6
 
     // 擠壓：沿飛行方向壓扁，交給彈簧回彈
     b.squashAngle = Math.atan2(b.vy, b.vx)
@@ -208,8 +205,8 @@ export function createKeepyScreen() {
 
     b.x += b.vx * dt
     b.y += b.vy * dt
-    b.rot += b.vrot * dt
-    b.vrot *= 0.99
+    // 滾動：旋轉量 = 水平位移 / 半徑（弧度），球轉得「剛剛好」配合移動，像真的在滾
+    b.rot += (b.vx * dt) / b.r
 
     // 左右牆反彈
     if (b.x - b.r < 0) {
@@ -257,13 +254,16 @@ export function createKeepyScreen() {
 
   function drawShadow(b) {
     const groundY = H - 8
-    const closeness = Math.min(1, Math.max(0, (b.y + b.r) / H))
-    const w = b.r * (0.7 + closeness * 0.7)
+    // 球底離地距離 → 高度因子 (0 = 貼地, 1 = 高)
+    const hN = clamp((groundY - (b.y + b.r)) / (H * 0.55), 0, 1)
+    // 越高 → 影子越大、越模糊、越淡；越低 → 越小、越銳利、越深（撐出立體高度感）
+    const w = b.r * (0.78 + hN * 1.05)
     ctx.save()
-    ctx.globalAlpha = 0.18 * closeness
+    if (ctx.filter !== undefined) ctx.filter = `blur(${(2 + hN * 16).toFixed(1)}px)`
+    ctx.globalAlpha = 0.32 * (1 - hN * 0.72)
     ctx.fillStyle = '#000'
     ctx.beginPath()
-    ctx.ellipse(b.x, groundY, w, w * 0.22, 0, 0, Math.PI * 2)
+    ctx.ellipse(b.x, groundY, w, w * 0.24, 0, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
   }
@@ -319,6 +319,8 @@ export function createKeepyScreen() {
 
   const ro = new ResizeObserver(resize)
   ro.observe(game)
+
+  if (TEST) window.__fg = { state, get H() { return H } }
 
   // 初始化 (需等 DOM 進場才有尺寸)
   requestAnimationFrame(() => {
