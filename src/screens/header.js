@@ -14,6 +14,14 @@ import { drawBall } from '../ball.js'
 import { createHomeScreen } from './home.js'
 import { CameraTracker, PointerTracker } from './headerTracker.js'
 
+// 球場背景圖（降級 / 指標模式用；載入失敗退回漸層）
+const pitchBg = new Image()
+let pitchBgReady = false
+pitchBg.onload = () => {
+  pitchBgReady = true
+}
+pitchBg.src = 'assets/bg/header.webp'
+
 const MODE = 'header'
 const GAME_SEC = 60
 const HEAD_SWING_THRESH = 230 // 頭擺動速度門檻 (px/s，任意方向)，超過才算有效頂球
@@ -304,24 +312,30 @@ export function createHeaderScreen() {
   function render() {
     ctx.clearRect(0, 0, W, H)
 
-    // 球場背景（不鋪攝影機畫面）。地平線拉高，讓遠方球門站在草地上。
-    const hz = HORIZON()
-    const sky = ctx.createLinearGradient(0, 0, 0, hz)
-    sky.addColorStop(0, '#7ec0e8')
-    sky.addColorStop(1, '#cfeeff')
-    ctx.fillStyle = sky
-    ctx.fillRect(0, 0, W, hz)
-    const grass = ctx.createLinearGradient(0, hz, 0, H)
-    grass.addColorStop(0, '#3f9b4b')
-    grass.addColorStop(1, '#256a2f')
-    ctx.fillStyle = grass
-    ctx.fillRect(0, hz, W, H - hz)
-    // 草皮割草條紋（近大遠小）
-    ctx.fillStyle = 'rgba(255,255,255,0.045)'
-    for (let i = 0; i < 7; i++) {
-      const y = hz + ((H - hz) * i * i) / 49
-      const y2 = hz + ((H - hz) * (i + 1) * (i + 1)) / 49
-      if (i % 2 === 0) ctx.fillRect(0, y, W, y2 - y)
+    // 球場背景：AI 球場圖（cover），載入失敗退回漸層 + 條紋
+    if (pitchBgReady) {
+      const scale = Math.max(W / pitchBg.width, H / pitchBg.height)
+      const dw = pitchBg.width * scale
+      const dh = pitchBg.height * scale
+      ctx.drawImage(pitchBg, (W - dw) / 2, (H - dh) / 2, dw, dh)
+    } else {
+      const hz = HORIZON()
+      const sky = ctx.createLinearGradient(0, 0, 0, hz)
+      sky.addColorStop(0, '#7ec0e8')
+      sky.addColorStop(1, '#cfeeff')
+      ctx.fillStyle = sky
+      ctx.fillRect(0, 0, W, hz)
+      const grass = ctx.createLinearGradient(0, hz, 0, H)
+      grass.addColorStop(0, '#3f9b4b')
+      grass.addColorStop(1, '#256a2f')
+      ctx.fillStyle = grass
+      ctx.fillRect(0, hz, W, H - hz)
+      ctx.fillStyle = 'rgba(255,255,255,0.045)'
+      for (let i = 0; i < 7; i++) {
+        const y = hz + ((H - hz) * i * i) / 49
+        const y2 = hz + ((H - hz) * (i + 1) * (i + 1)) / 49
+        if (i % 2 === 0) ctx.fillRect(0, y, W, y2 - y)
+      }
     }
 
     drawGoal()
