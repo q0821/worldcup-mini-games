@@ -8,12 +8,69 @@
 //   4) 左上高光 (固定光源，不隨自轉)
 //   5) 輪廓描邊
 
+// 真實足球照片（有就用，圓形裁切 → 免去背）；載入失敗退回程序繪製。
+const ballImg = new Image()
+let ballImgReady = false
+ballImg.onload = () => {
+  ballImgReady = true
+}
+ballImg.src = 'assets/ball.png'
+
 // 在指定 ctx 上畫一顆足球。
 //  cx, cy: 球心；r: 半徑；rotation: 自轉角(弧度)
 //  sx, sy: 變形量 (1 = 不變形)；squashAngle: 變形主軸方向(弧度)
-export function drawBall(ctx, { cx, cy, r, rotation = 0, sx = 1, sy = 1, squashAngle = 0 }) {
+export function drawBall(ctx, opts) {
+  if (ballImgReady) drawBallPhoto(ctx, opts)
+  else drawBallVector(ctx, opts)
+}
+
+// 照片版：圓形裁切（球是圓的、免去背）+ 旋轉 + 擠壓 + 固定光源高光/暗角
+function drawBallPhoto(ctx, { cx, cy, r, rotation = 0, sx = 1, sy = 1, squashAngle = 0 }) {
   ctx.save()
   ctx.translate(cx, cy)
+  // 擠壓：在變形後的座標系裡裁圓 → 螢幕上呈橢圓
+  ctx.rotate(squashAngle)
+  ctx.scale(sx, sy)
+  ctx.rotate(-squashAngle)
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.clip()
+  // 自轉：轉圖案；放大 1.04 確保照片填滿裁切圓、不露邊角背景
+  ctx.rotate(rotation)
+  const d = r * 2.08
+  ctx.drawImage(ballImg, -d / 2, -d / 2, d, d)
+  ctx.restore()
+
+  // 固定光源高光（不隨自轉）→ 修正照片自轉時烤進的光影方向
+  const hl = ctx.createRadialGradient(-r * 0.4, -r * 0.45, r * 0.05, -r * 0.4, -r * 0.45, r * 1.0)
+  hl.addColorStop(0, 'rgba(255,255,255,0.45)')
+  hl.addColorStop(0.3, 'rgba(255,255,255,0)')
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fillStyle = hl
+  ctx.fill()
+  // 邊緣暗角
+  const vig = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r)
+  vig.addColorStop(0, 'rgba(0,0,0,0)')
+  vig.addColorStop(0.88, 'rgba(0,0,0,0)')
+  vig.addColorStop(1, 'rgba(0,0,0,0.28)')
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fillStyle = vig
+  ctx.fill()
+
+  ctx.restore()
+}
+
+function drawBallVector(ctx, { cx, cy, r, rotation = 0, sx = 1, sy = 1, squashAngle = 0 }) {
+  ctx.save()
+  ctx.translate(cx, cy)
+
+  // 沿撞擊方向施加擠壓 (squash/stretch)
+  ctx.rotate(squashAngle)
+  ctx.scale(sx, sy)
 
   // 沿撞擊方向施加擠壓 (squash/stretch)
   ctx.rotate(squashAngle)
