@@ -8,7 +8,7 @@ import { drawBall } from '../ball.js'
 
 const SIZE = 1080
 // 正式網址（vite.config.js define 注入的單一來源）
-const SITE_URL = typeof __SITE_URL__ !== 'undefined' ? __SITE_URL__ : 'https://worldcup.jackie-yeh.com'
+const SITE_URL = typeof __SITE_URL__ !== 'undefined' ? __SITE_URL__ : 'https://worldcup.tellustek.com'
 // 遊戲網址：優先用實際部署來源（本機=localhost、上線=部署網域），SSR 無 location 時退回正式網址。
 // 帶 mode 時附上 #模式 深連結 → 點連結 / 掃 QR 直接進入該模式（路由見 main.js）
 const gameUrl = (mode) => {
