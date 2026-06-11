@@ -36,7 +36,7 @@ export function makeCamera(W, H) {
 // 若提供 standsImg（AI 生成看台圖），取代程序繪製的天空 + 看台區。
 // 整座球場一張圖：在圖的草地線切兩段，看台段拉進地平線以上、草地段拉進以下。
 // 接縫落在圖自己的草地線上 → 無縫，且草地線對齊 horizonY 讓 3D 球門站在草地上。
-const STADIUM_CUT = 0.42 // 圖中「看台 / 草地」分界的高度比例
+const STADIUM_CUT = 0.53 // 圖中「看台 / 草地」分界的高度比例
 function drawStadium(g, img, W, H, horizonY) {
   const cut = img.height * STADIUM_CUT
   g.drawImage(img, 0, 0, img.width, cut, 0, 0, W, Math.max(1, horizonY)) // 看台段
