@@ -133,11 +133,11 @@ export function createHeaderScreen() {
     canvas.height = Math.round(H * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     goal.cx = W / 2
-    // 以 min(W,H) 為基準，直式 / 橫式都不會太小或太寬；較高、不再「太矮」
+    // 以 min(W,H) 為基準，直式 / 橫式都不會太小或太寬
     const u = Math.min(W, H)
-    goal.halfW = clamp(u * 0.34, 100, 280)
-    goal.h = goal.halfW * 0.82
-    goal.baseY = H * 0.5 // 站在草地上（背景看台之下）
+    goal.halfW = clamp(u * 0.3, 96, 250)
+    goal.h = goal.halfW * 0.95 // 接近真實 3:1 偏高一點，視覺不會太矮
+    goal.baseY = H * 0.52 // 站在草地上（背景看台之下）
   }
 
   const HORIZON = () => H * 0.3 // 天空 / 草皮分界（fallback 漸層用）
@@ -432,12 +432,12 @@ export function createHeaderScreen() {
     const topY = goal.baseY - goal.h
     const botY = goal.baseY
     const post = Math.max(5, goal.halfW * 0.05)
-    // 網子深度（往畫面內 = 往上 + 收窄）
-    const depth = goal.h * 0.62
-    const bx0 = x0 + depth * 0.34
-    const bx1 = x1 - depth * 0.34
-    const bTop = topY - depth * 0.42
-    const bBot = botY - depth * 0.5
+    // 網子深度（往畫面內 = 略收窄 + 背板抬高）。淺一點、不要太斜，像一般球門。
+    const depth = goal.h * 0.45
+    const bx0 = x0 + depth * 0.5
+    const bx1 = x1 - depth * 0.5
+    const bTop = topY + depth * 0.12 // 背板頂略低於橫楣
+    const bBot = botY - depth * 0.95 // 背板底抬高（網往後落地）
 
     // 柔和落地陰影（模糊、低透明、貼著門柱底）
     ctx.save()
