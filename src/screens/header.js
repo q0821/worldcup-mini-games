@@ -79,7 +79,7 @@ export function createHeaderScreen() {
   let tracker = null
   let usingCamera = false
 
-  const goal = { cx: 0, halfW: 0, mouthY: 0, h: 0, shake: 0 }
+  const goal = { cx: 0, halfW: 0, baseY: 0, h: 0, shake: 0 } // baseY = 門柱站在草地上的基準線
   const head = { x: 0, y: 0, vx: 0, vy: 0, r: 56, active: false } // 場上「頂球點」
   const state = {
     raf: 0,
@@ -103,12 +103,13 @@ export function createHeaderScreen() {
     canvas.height = Math.round(H * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     goal.cx = W / 2
-    goal.halfW = clamp(W * 0.28, 110, 210)
+    goal.halfW = clamp(W * 0.26, 104, 200)
     goal.h = goal.halfW * 0.62
-    goal.mouthY = H * 0.26
+    goal.baseY = H * 0.36 // 站在遠方草地上
   }
 
-  const headLineY = () => H * 0.6
+  const HORIZON = () => H * 0.2 // 天空 / 草皮分界
+  const headLineY = () => H * 0.62
 
   // 球從左 / 右側拋物線傳中飛入
   function newBall() {
@@ -153,7 +154,7 @@ export function createHeaderScreen() {
     const goalX = rawX + (goal.cx - rawX) * GOAL_BIAS
     b.x1 = clamp(goalX, goal.cx - goal.halfW * 2.4, goal.cx + goal.halfW * 2.4)
     b.willScore = Math.abs(b.x1 - goal.cx) < goal.halfW - b.baseR * FAR_SCALE * 0.5
-    b.y1 = goal.mouthY - goal.h * 0.35 // 飛進球門內
+    b.y1 = goal.baseY - goal.h * 0.55 // 飛進球門內（門口中段）
     // 頂出速度越快（擺得越猛）飛得越俐落
     const swing = Math.hypot(head.vx, head.vy)
     b.outDur = clamp(T_OUT * (1 - (swing - HEAD_SWING_THRESH) / 2600), 0.4, T_OUT)
@@ -303,17 +304,25 @@ export function createHeaderScreen() {
   function render() {
     ctx.clearRect(0, 0, W, H)
 
-    // 球場背景（不鋪攝影機畫面）
-    const sky = ctx.createLinearGradient(0, 0, 0, H)
+    // 球場背景（不鋪攝影機畫面）。地平線拉高，讓遠方球門站在草地上。
+    const hz = HORIZON()
+    const sky = ctx.createLinearGradient(0, 0, 0, hz)
     sky.addColorStop(0, '#7ec0e8')
-    sky.addColorStop(0.42, '#bfe6ff')
-    sky.addColorStop(0.42, '#46a352')
-    sky.addColorStop(1, '#2e7a3a')
+    sky.addColorStop(1, '#cfeeff')
     ctx.fillStyle = sky
-    ctx.fillRect(0, 0, W, H)
-    // 草皮條紋
-    ctx.fillStyle = 'rgba(255,255,255,0.04)'
-    for (let i = 0; i < 8; i += 2) ctx.fillRect(0, H * 0.42 + (i * (H * 0.58)) / 8, W, (H * 0.58) / 8)
+    ctx.fillRect(0, 0, W, hz)
+    const grass = ctx.createLinearGradient(0, hz, 0, H)
+    grass.addColorStop(0, '#3f9b4b')
+    grass.addColorStop(1, '#256a2f')
+    ctx.fillStyle = grass
+    ctx.fillRect(0, hz, W, H - hz)
+    // 草皮割草條紋（近大遠小）
+    ctx.fillStyle = 'rgba(255,255,255,0.045)'
+    for (let i = 0; i < 7; i++) {
+      const y = hz + ((H - hz) * i * i) / 49
+      const y2 = hz + ((H - hz) * (i + 1) * (i + 1)) / 49
+      if (i % 2 === 0) ctx.fillRect(0, y, W, y2 - y)
+    }
 
     drawGoal()
 
@@ -365,8 +374,16 @@ export function createHeaderScreen() {
     const cx = goal.cx + sx
     const x0 = cx - goal.halfW
     const x1 = cx + goal.halfW
-    const topY = goal.mouthY - goal.h
-    const botY = goal.mouthY
+    const topY = goal.baseY - goal.h
+    const botY = goal.baseY
+
+    // 門柱落地陰影（讓球門站在草地上、不漂浮）
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    ctx.beginPath()
+    ctx.ellipse(cx, botY + 4, goal.halfW * 1.12, goal.halfW * 0.12, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
 
     ctx.strokeStyle = 'rgba(255,255,255,0.4)'
     ctx.lineWidth = 1
