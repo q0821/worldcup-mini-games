@@ -255,21 +255,22 @@ body {
   }
 }
 
-/* ---------- PK 大賽 HUD ---------- */
-/* 計分板靠左上角，避免門將視角擋住中央的射手 */
+/* ---------- PK 大賽 HUD（世界盃轉播風） ---------- */
+/* 計分板靠左上角，斜切轉播面板 + 金色側條 + 窄體數字 */
 .pk-board {
   position: absolute;
   top: calc(56px + var(--safe-top));
   left: 12px;
-  background: rgba(10, 22, 14, 0.5);
-  backdrop-filter: blur(4px);
-  border-radius: 12px;
-  padding: 7px 12px;
+  background: linear-gradient(160deg, rgba(13, 22, 43, 0.94) 0%, rgba(24, 38, 72, 0.94) 100%);
+  border-left: 4px solid var(--accent);
+  border-radius: 3px 8px 8px 3px;
+  padding: 8px 14px 8px 12px;
   color: #fff;
   font-size: 13px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .pk-board .row {
   display: flex;
@@ -277,64 +278,81 @@ body {
   gap: 10px;
 }
 .pk-board .name {
-  width: 36px;
-  opacity: 0.85;
+  width: 40px;
   font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(225, 233, 250, 0.92);
+  text-transform: uppercase;
 }
 .pk-board .dots {
   display: flex;
   gap: 5px;
 }
 .pk-board .dot {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.85);
+  border: 1.5px solid rgba(190, 205, 235, 0.75);
   display: inline-block;
 }
 .pk-board .dot.goal {
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(255, 211, 61, 0.7);
 }
 .pk-board .dot.miss {
-  background: #c0392b;
-  border-color: #c0392b;
+  background: #d6453a;
+  border-color: #d6453a;
 }
 .pk-board .dot.pending {
-  opacity: 0.35;
+  opacity: 0.3;
 }
 .pk-board b {
-  min-width: 16px;
+  min-width: 20px;
   text-align: right;
-  font-size: 16px;
+  font-size: 19px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-style: italic;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 .pk-kicklabel {
   position: absolute;
-  top: calc(126px + var(--safe-top));
-  left: 0;
-  right: 0;
+  top: calc(56px + var(--safe-top));
+  right: 12px;
+  width: auto;
   text-align: center;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
-  letter-spacing: 1px;
+  color: #0d162b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: linear-gradient(160deg, #ffd95e, #f0b400);
+  padding: 5px 12px;
+  border-radius: 3px 8px 8px 3px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
 }
 .pk-msg {
   position: absolute;
-  top: 38%;
+  top: 36%;
   left: 0;
   right: 0;
   text-align: center;
   color: #fff;
-  font-size: clamp(30px, 9vw, 52px);
-  font-weight: 800;
-  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+  font-size: clamp(34px, 10vw, 58px);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(8, 14, 30, 0.55), 0 8px 24px rgba(0, 0, 0, 0.55);
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(0.7) skewX(-4deg);
   transition: opacity 0.15s ease, transform 0.18s ease;
 }
 .pk-msg.show {
   opacity: 1;
-  transform: scale(1);
+  transform: scale(1) skewX(-4deg);
 }
 .pk-msg.good {
   color: var(--accent);
@@ -345,12 +363,23 @@ body {
 .pk-hint {
   position: absolute;
   bottom: calc(86px + var(--safe-bottom));
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 86%;
   text-align: center;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(240, 245, 255, 0.95);
   font-size: 14px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: rgba(10, 16, 32, 0.55);
+  backdrop-filter: blur(4px);
+  padding: 7px 16px;
+  border-radius: 999px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.pk-hint:empty {
+  display: none;
 }
 /* ---------- 頭鎚射門 HUD ---------- */
 .hd-hud {

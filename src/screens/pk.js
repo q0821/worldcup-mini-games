@@ -30,12 +30,13 @@ import {
   makeRevView,
   renderBackgroundRev,
   drawGoalFrameRev,
+  drawNetRev,
   drawStriker,
-  drawGloves,
+  drawKeeperBack,
 } from './pkScene.js'
 
 const G = 9.81
-const KEEPER_Z = 10.8
+const KEEPER_Z = 10.5
 const DIVE_DUR = 0.42
 const RUN_DUR = 0.8
 const AIM_WAIT = 1.2 // 門將回合：射手起跑前的等待
@@ -55,7 +56,7 @@ const DIFFS = {
     cpuSpeed: [11, 15], // 球速放慢 → 反應窗較長、好擋
     cpuBanana: 0.18,
     cornerProb: 0.45,
-    circleR: 0.14, // 紅圈半徑（佔畫面寬比例）放大
+    circleRm: 1.1, // 紅圈半徑（公尺，依球門比例投影 → 跨裝置一致）
   },
   hard: {
     sweet: [0.64, 0.76], // 完美力道區（窄）
@@ -66,7 +67,7 @@ const DIFFS = {
     cpuSpeed: [15, 20],
     cpuBanana: 0.38,
     cornerProb: 0.82,
-    circleR: 0.1,
+    circleRm: 0.78,
   },
 }
 
@@ -117,7 +118,20 @@ export function createPkScreen() {
   let rev = null
   let bgFwd = null
   let bgRev = null
-  let stadiumImg = null
+  // 夜景背景：直式 / 橫式各一組，依畫面長寬比挑選（cut = 圖中草地分界線比例，實測）
+  const BG = {
+    fwdP: { src: 'assets/bg/pk-night.webp', cut: 0.495, img: null },
+    fwdL: { src: 'assets/bg/pk-night-l.webp', cut: 0.518, img: null },
+    revP: { src: 'assets/bg/pk-night-rev.webp', cut: 0.486, img: null },
+    revL: { src: 'assets/bg/pk-night-rev-l.webp', cut: 0.519, img: null },
+  }
+  // 取用中的背景：橫式優先用橫式圖，沒載到就退直式（再不行退程序繪製）
+  const pickBg = (kind) => {
+    const wide = W > H
+    const a = BG[kind + (wide ? 'L' : 'P')]
+    const b = BG[kind + (wide ? 'P' : 'L')]
+    return a.img ? a : b.img ? b : a
+  }
   const crowdAnim = { cheer: 0, sink: 0, time: 0 } // 看台情緒：進球變亮(歡呼) / 沒進變暗(沮喪)
 
   const state = {
@@ -165,14 +179,17 @@ export function createPkScreen() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     cam = makeCamera(W, H)
     rev = makeRevView(W, H)
-    bgFwd = renderBackground(cam, dpr, stadiumImg)
-    bgRev = renderBackgroundRev(rev, dpr, stadiumImg)
+    const f = pickBg('fwd')
+    const r = pickBg('rev')
+    bgFwd = renderBackground(cam, dpr, f.img, f.cut)
+    bgRev = renderBackgroundRev(rev, dpr, r.img, r.cut)
   }
 
   // 觀眾情緒：圖內已有觀眾，這裡只在看台區疊亮度／暗度——進球時看台變亮(歡呼)、沒進變暗(沮喪)
+  // 夜場加碼：看台上隨機閃爍的相機閃光燈（平時零星、歡呼時密集）
   function drawCrowdMood(hzY) {
     if (crowdAnim.cheer > 0.01) {
-      const a = 0.26 * crowdAnim.cheer * (0.85 + 0.15 * Math.sin(crowdAnim.time * 12)) // 微閃爍像在跳
+      const a = 0.22 * crowdAnim.cheer * (0.85 + 0.15 * Math.sin(crowdAnim.time * 12)) // 微閃爍像在跳
       ctx.fillStyle = `rgba(255,236,150,${a})`
       ctx.fillRect(0, 0, W, hzY)
     }
@@ -180,18 +197,76 @@ export function createPkScreen() {
       ctx.fillStyle = `rgba(0,6,24,${0.36 * crowdAnim.sink})`
       ctx.fillRect(0, 0, W, hzY)
     }
+    const flashes = Math.round(3 + 26 * crowdAnim.cheer)
+    for (let i = 0; i < flashes; i++) {
+      if (Math.random() > 0.5) continue // 一半機率閃，避免均勻感
+      const x = Math.random() * W
+      const y = hzY * (0.12 + Math.random() * 0.82)
+      const r = 0.6 + Math.random() * 1.6
+      ctx.fillStyle = `rgba(255,255,255,${0.35 + Math.random() * 0.6})`
+      ctx.beginPath()
+      ctx.arc(x, y, r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
+  // ---------- 彩帶（進球 / 獲勝時自頂落下） ----------
+  const confetti = []
+  const CONFETTI_COLORS = ['#ffd33d', '#f0533f', '#3f8ef0', '#2ecc71', '#f7f7f5']
+  function spawnConfetti(n) {
+    for (let i = 0; i < n; i++) {
+      confetti.push({
+        x: Math.random() * W,
+        y: -20 - Math.random() * H * 0.25,
+        vx: (Math.random() - 0.5) * 50,
+        vy: 90 + Math.random() * 160,
+        rot: Math.random() * Math.PI * 2,
+        vrot: (Math.random() - 0.5) * 9,
+        w: 3.5 + Math.random() * 4,
+        h: 6 + Math.random() * 7,
+        sway: Math.random() * Math.PI * 2,
+        color: CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0],
+      })
+    }
+  }
+  function updateConfetti(dt) {
+    for (let i = confetti.length - 1; i >= 0; i--) {
+      const c = confetti[i]
+      c.x += (c.vx + Math.sin(state.time * 3 + c.sway) * 36) * dt
+      c.y += c.vy * dt
+      c.rot += c.vrot * dt
+      if (c.y > H + 24) confetti.splice(i, 1)
+    }
+  }
+  function drawConfetti() {
+    for (const c of confetti) {
+      ctx.save()
+      ctx.translate(c.x, c.y)
+      ctx.rotate(c.rot)
+      ctx.fillStyle = c.color
+      ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h)
+      ctx.restore()
+    }
   }
 
   {
-    const stadium = new Image()
-    stadium.onload = () => {
-      stadiumImg = stadium
-      if (cam) {
-        bgFwd = renderBackground(cam, dpr, stadiumImg)
-        bgRev = renderBackgroundRev(rev, dpr, stadiumImg)
+    // 預載四張夜景背景；任何一張載入完成就重建對應視角的底圖（載不到則退程序繪製夜景）
+    for (const key of Object.keys(BG)) {
+      const entry = BG[key]
+      const im = new Image()
+      im.onload = () => {
+        entry.img = im
+        if (!cam) return
+        if (key.startsWith('fwd')) {
+          const f = pickBg('fwd')
+          bgFwd = renderBackground(cam, dpr, f.img, f.cut)
+        } else {
+          const r = pickBg('rev')
+          bgRev = renderBackgroundRev(rev, dpr, r.img, r.cut)
+        }
       }
+      im.src = entry.src
     }
-    stadium.src = 'assets/bg/pk-stadium.webp'
   }
 
   function newBall(atSpot) {
@@ -204,7 +279,7 @@ export function createPkScreen() {
       vz: 0,
       aLat: 0,
       rot: 0,
-      vrot: 0,
+      prevSX: null, // 上一幀的螢幕 x（旋轉 = 螢幕位移 ÷ 螢幕半徑，同顛球模式）
       sq: 0,
       sqv: 0,
       squashAngle: 0,
@@ -256,10 +331,11 @@ export function createPkScreen() {
     msgEl.textContent = text
     msgEl.className = 'pk-msg show ' + tone
     state.msgT = 1.3
-    // 觀眾反應：好事 → 歡呼跳動；壞事 → 往下坐
+    // 觀眾反應：好事 → 歡呼跳動 + 彩帶；壞事 → 往下坐
     if (tone === 'good') {
       crowdAnim.cheer = 1
       crowdAnim.sink = 0
+      spawnConfetti(70)
     } else if (tone === 'bad') {
       crowdAnim.sink = 1
       crowdAnim.cheer = 0
@@ -331,11 +407,15 @@ export function createPkScreen() {
 
   function endMatch() {
     state.phase = 'end'
+    setHint('')
     const win = goals(state.pRes) > goals(state.cRes)
     submitScore('pk', goals(state.pRes)) // 記錄單場最高進球數
     sound.whistle(3)
-    if (win) sound.crowd(2.2, 0.4)
-    else sound.fail()
+    if (win) {
+      sound.crowd(2.2, 0.4)
+      crowdAnim.cheer = 1
+      spawnConfetti(180)
+    } else sound.fail()
     showOverlay(endOverlay(win))
   }
 
@@ -447,8 +527,9 @@ export function createPkScreen() {
   }
 
   function circleRadius() {
-    // 紅圈隨球接近縮小（緊迫感），點擊判定用同一半徑
-    const base = W * state.diff.circleR
+    // 紅圈隨球接近縮小（緊迫感），點擊判定用同一半徑。
+    // 半徑以公尺定義、用 rev.Kx 投影成像素 → 手機 / 桌機比例一致（不再綁螢幕寬）
+    const base = state.diff.circleRm * rev.Kx
     const prog = state.shot ? clamp(state.flyT / state.shot.T, 0, 1) : 0
     return base * (1.4 - 0.4 * prog)
   }
@@ -471,7 +552,7 @@ export function createPkScreen() {
     b.vx = (tx - b.x - 0.5 * aLat * T * T) / T // 解初速：球起步偏一側、弧線彎回 tx
     b.vy = (ty - b.y + 0.5 * G * T * T) / T
     b.aLat = aLat
-    b.vrot = (9 + Math.random() * 4) * dir
+    b.prevSX = null
     b.live = true
     b.sqv += 4.5
     b.squashAngle = Math.atan2(-b.vy, b.vx)
@@ -618,7 +699,22 @@ export function createPkScreen() {
       b.x += b.vx * dt
       b.y += b.vy * dt
       b.z += b.vz * dt
-      b.rot += b.vrot * dt
+
+      // 旋轉 = 螢幕水平位移 ÷ 螢幕半徑（與顛球模式一致的「滾動感」）：
+      // 直射幾乎不轉、香蕉球隨弧線明顯旋轉、彈地滾動方向正確
+      {
+        let p
+        let r
+        if (state.playerShoots) {
+          p = cam.project(b.x, b.y, b.z)
+          r = Math.max(3, BALL_R * 1.35 * cam.K * p.s)
+        } else {
+          p = rev.project(b.x, b.y, Math.max(-1.4, b.z))
+          r = Math.max(5, BALL_R * 2.2 * rev.Ky * p.s)
+        }
+        if (b.prevSX !== null) b.rot += (p.x - b.prevSX) / r
+        b.prevSX = p.x
+      }
 
       b.sqv += (-900 * b.sq - 18 * b.sqv) * dt
       b.sq += b.sqv * dt
@@ -635,6 +731,19 @@ export function createPkScreen() {
         b.vz *= 0.08
         b.vx *= 0.25
         sound.swish()
+      }
+      // 門將回合失球：球撞上背網（rev 座標的網在 z = GOAL.z - zBack(y)，為負值）
+      // 衝擊放大 1.6 倍：網面朝鏡頭凸起是這個視角的主要戲劇效果
+      if (
+        !state.playerShoots &&
+        b.isGoal &&
+        !state.netHit &&
+        b.z <= GOAL.z - state.net.zBack(Math.max(0, b.y)) + 0.08
+      ) {
+        state.netHit = true
+        state.net.impact(b.x, clamp(b.y, 0, GOAL.height), (0.22 + Math.abs(b.vz) * 0.012) * 1.6)
+        b.vz *= 0.08
+        b.vx *= 0.25
       }
 
       if (b.y < BALL_R && b.vy < 0) {
@@ -666,6 +775,7 @@ export function createPkScreen() {
     if (state.playerShoots || state.phase === 'menu' || state.phase === 'end') renderShooterView()
     else renderKeeperView()
     ctx.restore()
+    drawConfetti()
   }
 
   function renderShooterView() {
@@ -677,12 +787,18 @@ export function createPkScreen() {
     const kp = state.keeper
     const ballVisible = b && b.z > -1.2
     if (ballVisible) {
+      // 影子（同顛球模式邏輯）：越高 → 越大、越模糊、越淡；貼地 → 小而銳利深色
       const sh = cam.project(b.x, 0, Math.min(b.z, GOAL.z + 1.4))
-      const hN = clamp(1 - b.y / 3.2, 0.25, 1)
-      ctx.fillStyle = `rgba(0,0,0,${0.26 * hN})`
+      const rG = Math.max(3, BALL_R * 1.35 * cam.K * sh.s)
+      const hN = clamp(b.y / 2.2, 0, 1)
+      ctx.save()
+      if (ctx.filter !== undefined) ctx.filter = `blur(${(1 + hN * 8).toFixed(1)}px)`
+      ctx.globalAlpha = 0.34 * (1 - hN * 0.7)
+      ctx.fillStyle = '#000'
       ctx.beginPath()
-      ctx.ellipse(sh.x, sh.y, BALL_R * 2.4 * cam.K * sh.s * hN, BALL_R * 0.8 * cam.K * sh.s * hN, 0, 0, Math.PI * 2)
+      ctx.ellipse(sh.x, sh.y, rG * (0.95 + hN * 0.95), rG * (0.95 + hN * 0.95) * 0.32, 0, 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
     }
     const ballBehind = b && b.z > KEEPER_Z
     if (ballVisible && ballBehind) paintBallFwd(b)
@@ -781,6 +897,8 @@ export function createPkScreen() {
     ctx.restore()
   }
 
+  // 門將視角（門後轉播鏡頭）繪製順序：
+  // 背景 → 看台情緒 → 射手 → 場內球 → 門框 → 門將背影 → 門內球 → 前景背網 → 紅圈 → 特效
   function renderKeeperView() {
     ctx.drawImage(bgRev, 0, 0, W, H)
     drawCrowdMood(rev.horizonY)
@@ -788,14 +906,21 @@ export function createPkScreen() {
     if (state.striker) drawStriker(ctx, rev, state.striker, state.time)
 
     const b = state.ball
-    if (b && b.z > -0.5) {
-      const sh = rev.project(b.x, 0, Math.max(0, b.z))
-      ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    const paintBallRev = () => {
+      // 影子（同顛球模式邏輯）：高度決定大小 / 模糊 / 透明度
+      const sh = rev.project(b.x, 0, Math.max(-1.4, b.z))
+      const rG = Math.max(4, BALL_R * 2.2 * rev.Kx * sh.s)
+      const hN = clamp(b.y / 2.2, 0, 1)
+      ctx.save()
+      if (ctx.filter !== undefined) ctx.filter = `blur(${(1 + hN * 8).toFixed(1)}px)`
+      ctx.globalAlpha = 0.34 * (1 - hN * 0.7)
+      ctx.fillStyle = '#000'
       ctx.beginPath()
-      ctx.ellipse(sh.x, sh.y, BALL_R * 2 * rev.Kx * sh.s, BALL_R * 0.8 * rev.Ky * sh.s, 0, 0, Math.PI * 2)
+      ctx.ellipse(sh.x, sh.y, rG * (0.95 + hN * 0.95), rG * (0.95 + hN * 0.95) * 0.36, 0, 0, Math.PI * 2)
       ctx.fill()
-      const p = rev.project(b.x, b.y, Math.max(-0.3, b.z))
-      const r = Math.max(4, BALL_R * 2.0 * rev.Ky * p.s)
+      ctx.restore()
+      const p = rev.project(b.x, b.y, Math.max(-1.4, b.z))
+      const r = Math.max(5, BALL_R * 2.2 * rev.Ky * p.s)
       drawBall(ctx, {
         cx: p.x,
         cy: p.y,
@@ -806,18 +931,29 @@ export function createPkScreen() {
         squashAngle: b.squashAngle,
       })
     }
+    const ballVisible = b && b.z > -1.5
+    const ballInField = b && b.z >= 0
 
-    // 出腳瞬間閃光
+    if (ballVisible && ballInField) paintBallRev()
+
+    drawGoalFrameRev(ctx, rev)
+    drawKeeperBack(ctx, rev, state.dive, state.time)
+
+    if (ballVisible && !ballInField) paintBallRev() // 進門後的球畫在門框 / 門將之上、網之下
+
+    drawNetRev(ctx, rev, state.net) // 前景背網（隔網看球場）
+
+    // 出腳瞬間閃光（以公尺投影定大小，跨裝置一致）
     if (state.kickFlash > 0 && b) {
       const p = rev.project(b.x, b.y, b.z)
       const a = state.kickFlash / 0.14
       ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`
       ctx.beginPath()
-      ctx.arc(p.x, p.y, rev.W * 0.1 * (1.6 - a), 0, Math.PI * 2)
+      ctx.arc(p.x, p.y, 2.6 * rev.Kx * p.s * (1.6 - a), 0, Math.PI * 2)
       ctx.fill()
     }
 
-    // 紅圈：來球落點，點到才擋得下（隨球接近縮小）
+    // 紅圈：來球落點，點到才擋得下（隨球接近縮小）；畫在網前確保清晰
     if (state.redCircle && state.phase === 'fly' && !b.crossed) {
       const p = rev.project(state.redCircle.x, state.redCircle.y, 0)
       const r = circleRadius()
@@ -837,10 +973,6 @@ export function createPkScreen() {
       ctx.arc(p.x, p.y, r * pulse, 0, Math.PI * 2)
       ctx.fill()
     }
-
-    drawGoalFrameRev(ctx, rev)
-
-    if (state.dive) drawGloves(ctx, rev, state.dive)
   }
 
   function paintBallFwd(b) {
@@ -872,6 +1004,7 @@ export function createPkScreen() {
     crowdAnim.time += dt
     crowdAnim.cheer = Math.max(0, crowdAnim.cheer - dt * 0.5)
     crowdAnim.sink = Math.max(0, crowdAnim.sink - dt * 0.7) // 沮喪退得慢一點
+    updateConfetti(dt)
     render()
   }
 
