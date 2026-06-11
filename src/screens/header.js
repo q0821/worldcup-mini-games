@@ -353,12 +353,13 @@ export function createHeaderScreen() {
   function render() {
     ctx.clearRect(0, 0, W, H)
 
-    // 球場背景：AI 球場圖（cover），載入失敗退回漸層 + 條紋
+    // 球場背景：AI 球場圖。在圖的草地線(0.5)切兩段，看台段填到球門底、草地段填以下，
+    // 強制讓背景草地線對齊球門底 → 球門站在草地上、不浮空。載入失敗退回漸層 + 條紋。
     if (pitchBgReady) {
-      const scale = Math.max(W / pitchBg.width, H / pitchBg.height)
-      const dw = pitchBg.width * scale
-      const dh = pitchBg.height * scale
-      ctx.drawImage(pitchBg, (W - dw) / 2, (H - dh) / 2, dw, dh)
+      const cut = pitchBg.height * 0.5 // header.webp 看台/草地分界
+      const lineY = goal.baseY
+      ctx.drawImage(pitchBg, 0, 0, pitchBg.width, cut, 0, 0, W, lineY)
+      ctx.drawImage(pitchBg, 0, cut, pitchBg.width, pitchBg.height - cut, 0, lineY, W, H - lineY)
     } else {
       const hz = HORIZON()
       const sky = ctx.createLinearGradient(0, 0, 0, hz)
