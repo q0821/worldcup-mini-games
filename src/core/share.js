@@ -7,8 +7,10 @@ import { getBest } from './storage.js'
 import { drawBall } from '../ball.js'
 
 const SIZE = 1080
-// 遊戲網址：用實際部署來源（本機=localhost、上線=worldcup.jackie-yeh.com）
-const gameUrl = () => (typeof location !== 'undefined' ? location.origin : 'https://worldcup.jackie-yeh.com')
+// 正式網址（vite.config.js define 注入的單一來源）
+const SITE_URL = typeof __SITE_URL__ !== 'undefined' ? __SITE_URL__ : 'https://worldcup.jackie-yeh.com'
+// 遊戲網址：優先用實際部署來源（本機=localhost、上線=部署網域），SSR 無 location 時退回正式網址
+const gameUrl = () => (typeof location !== 'undefined' ? location.origin : SITE_URL)
 
 // 各模式：標題、主數字標籤格式、主色
 const MODE_META = {
@@ -207,7 +209,7 @@ export function bindShare(btn, mode, score) {
 
 // 通用 OG 預覽圖（1200×630 橫式），給社群分享網址時的 og:image。
 // 在瀏覽器 render 後輸出存成 public/og.png（一次性資產）。
-export function renderOgCanvas(canonicalUrl = 'https://worldcup.jackie-yeh.com') {
+export function renderOgCanvas(canonicalUrl = SITE_URL) {
   const W = 1200
   const H = 630
   const cv = document.createElement('canvas')
