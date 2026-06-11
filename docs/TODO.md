@@ -11,12 +11,13 @@
   - 4 姿勢單張 sheet（預備蹲姿／左撲／右撲／撲高球）→ `assets/sprites/keeper-back.webp`（95KB 含 alpha）
   - 連通元件自動裁切重組，座標寫死於 `pkScene.js` 的 `KEEPER_SPRITE.poses`
   - `drawKeeperBack()` 載入成功用 sprite、失敗退回向量版
-- [ ] **電腦門將正面 sprite**（射手回合）
-  - 姿勢：站姿微晃／左撲／右撲（金黃球衣，與玩家門將區分）
-  - 取代 `drawKeeper()`；比例：站立頭頂約到橫楣 3/4（1.8m / 2.44m）
-- [ ] **射手 sprite**（門將回合遠景，占比小、優先度最低）
-  - 姿勢：待機／助跑兩幀／出腳（紅衣白褲、背號 10）
-  - 取代 `drawStriker()`
+- [x] **電腦門將正面 sprite**（2026-06-11 完成）
+  - 4 姿勢（預備蹲姿/左撲/右撲/跳起）→ `assets/sprites/keeper-front.webp`（103KB）
+  - 生成兩次都只給假棋盤格/淺色底（無 alpha），改用邊界 flood-fill 去背後打包
+  - `drawKeeper()` 撲救依方向挑姿勢、中路高球用跳起；向量版保留 fallback
+- [x] **射手 sprite**（2026-06-11 完成）
+  - 3 姿勢（待機/跑步/出腳）→ `assets/sprites/striker.webp`（117KB）
+  - 跑步用單幀左右鏡像交替（7Hz）近似步伐；`drawStriker()` 取代，向量 fallback 保留
 - [ ] **整合注意事項**
   - 透明邊緣白邊：必要時預處理去邊或繪製時收縮 1px
   - 多姿勢一致性不佳就重 roll；撲救動作的腳朝向常需要 2 次內修正

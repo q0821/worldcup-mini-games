@@ -619,6 +619,29 @@ export function drawStriker(ctx, view, st, time) {
   // 影子（貼地 → 小而銳利）
   drawContactShadow(ctx, 0, 0, 0.5 * u, 0, 0.24)
 
+  // ---- Sprite 版（AI 生成射手）；載入失敗退回下方向量繪製 ----
+  const SPS = STRIKER_SPRITE
+  if (SPS.img && SPS.poses) {
+    const uu = view.Ky * p.s // sprite 用真實比例（向量版的 1.45 是火柴人體型補正）
+    let pose
+    let flip = false
+    if (st.phase === 'wait') {
+      pose = SPS.poses.idle
+    } else if (st.phase === 'run') {
+      pose = SPS.poses.run
+      flip = Math.floor(time * 7) % 2 === 1 // 兩拍鏡像 ≈ 跑步左右腳交替
+    } else {
+      pose = SPS.poses.kick
+    }
+    const h = pose.hM * uu
+    const w = h * (pose.w / pose.h)
+    if (st.phase === 'kick') ctx.rotate(-0.12) // 出腳微前傾
+    if (flip) ctx.scale(-1, 1)
+    ctx.drawImage(SPS.img, pose.x, pose.y, pose.w, pose.h, -w * pose.ax, -h * pose.ay, w, h)
+    ctx.restore()
+    return
+  }
+
   const M = (mx, my) => [mx * u, -my * u]
   const limb = (x1, y1, x2, y2, w, color) => {
     const [ax, ay] = M(x1, y1)
@@ -696,7 +719,7 @@ export function drawStriker(ctx, view, st, time) {
 const KEEPER_SPRITE = {
   src: 'assets/sprites/keeper-back.webp',
   img: null,
-  // 像素框為打包腳本實測值；hM = 繪製高度（公尺）、ax/ay = 錨點（接地 / 重心）相對位置
+  // 像素框為打包腳本（pack-sprites）實測值；hM = 繪製高度（公尺）、ax/ay = 錨點（接地 / 重心）相對位置
   poses: {
     idle: { x: 8, y: 226, w: 383, h: 404, hM: 1.3, ax: 0.5, ay: 0.99 },
     diveL: { x: 399, y: 109, w: 433, h: 521, hM: 1.75, ax: 0.62, ay: 0.62 },
@@ -704,12 +727,36 @@ const KEEPER_SPRITE = {
     up: { x: 1252, y: 8, w: 159, h: 622, hM: 2.25, ax: 0.5, ay: 0.97 },
   },
 }
-{
+
+// 對手門將（射手回合，正面、金黃球衣）
+const KEEPER_FRONT_SPRITE = {
+  src: 'assets/sprites/keeper-front.webp',
+  img: null,
+  poses: {
+    idle: { x: 8, y: 267, w: 318, h: 409, hM: 1.35, ax: 0.5, ay: 0.99 },
+    diveL: { x: 334, y: 154, w: 497, h: 522, hM: 1.75, ax: 0.62, ay: 0.62 },
+    diveR: { x: 839, y: 158, w: 465, h: 518, hM: 1.75, ax: 0.38, ay: 0.62 },
+    up: { x: 1312, y: 8, w: 196, h: 668, hM: 2.3, ax: 0.5, ay: 0.98 },
+  },
+}
+
+// 射手（門將回合，紅衣 10 號）
+const STRIKER_SPRITE = {
+  src: 'assets/sprites/striker.webp',
+  img: null,
+  poses: {
+    idle: { x: 8, y: 8, w: 307, h: 762, hM: 1.8, ax: 0.5, ay: 0.99 },
+    run: { x: 323, y: 23, w: 324, h: 747, hM: 1.78, ax: 0.5, ay: 0.99 },
+    kick: { x: 655, y: 19, w: 522, h: 751, hM: 1.8, ax: 0.35, ay: 0.99 },
+  },
+}
+
+for (const sp of [KEEPER_SPRITE, KEEPER_FRONT_SPRITE, STRIKER_SPRITE]) {
   const im = new Image()
   im.onload = () => {
-    KEEPER_SPRITE.img = im
+    sp.img = im
   }
-  im.src = KEEPER_SPRITE.src
+  im.src = sp.src
 }
 
 // 玩家門將（門後視角的背影化身）。
@@ -929,6 +976,21 @@ export function drawKeeper(ctx, cam, kp, time) {
   drawContactShadow(ctx, dx * u, -2, 0.55 * u, Math.min(1, dy / 1.0), 0.24)
 
   ctx.translate(dx * u, -dy * u)
+
+  // ---- Sprite 版（AI 生成正面門將）；載入失敗退回下方向量繪製 ----
+  const SPF = KEEPER_FRONT_SPRITE
+  if (SPF.img && SPF.poses) {
+    ctx.rotate(lean * (dive ? 0.3 : 1)) // sprite 自帶斜撲角度，傾斜量收斂
+    let pose
+    if (!dive) pose = SPF.poses.idle
+    else if (Math.abs(kp.targetX - kp.x) < 0.45) pose = SPF.poses.up
+    else pose = dir < 0 ? SPF.poses.diveL : SPF.poses.diveR
+    const h = pose.hM * u
+    const w = h * (pose.w / pose.h)
+    ctx.drawImage(SPF.img, pose.x, pose.y, pose.w, pose.h, -w * pose.ax, -h * pose.ay, w, h)
+    ctx.restore()
+    return
+  }
   ctx.rotate(lean)
 
   const M = (mx, my) => [mx * u, -my * u]
