@@ -18,9 +18,9 @@ const GAME_SEC = 60
 const HEAD_UP_THRESH = 170 // 頭往上速度門檻 (px/s)，超過才算有效頂球
 const HEAD_X_GAIN = 1.7 // 頭左右移動 → 頂球點的放大（小幅擺頭即可涵蓋全寬）
 const HEAD_Y_GAIN = 1.5
-const HEADER_BASE = 820
-const HEADER_MAX = 1500
-const GRAVITY = 420
+const GRAVITY = 1000 // 傳中拋物線重力（較強 → 弧線明顯、落得快）
+const T_OUT = 0.55 // 頂出後飛向球門的時間（快、俐落）
+const FAR_SCALE = 0.4 // 飛抵球門時的縮放（往前飛去的深度感）
 
 export function createHeaderScreen() {
   const el = document.createElement('div')
@@ -105,17 +105,21 @@ export function createHeaderScreen() {
 
   const headLineY = () => H * 0.6
 
-  // 球從左 / 右側橫向傳入，沿頂球線附近飛過
+  // 球從左 / 右側拋物線傳中飛入
   function newBall() {
     const r = Math.max(26, Math.min(W, H) * 0.07)
     const fromLeft = Math.random() < 0.5
-    const speed = W * (0.42 + Math.random() * 0.22)
+    const speed = W * (0.62 + Math.random() * 0.22) // 較快
     return {
+      phase: 'cross', // cross（傳中飛入）| out（頂出飛向球門）
+      t: 0,
       x: fromLeft ? -r : W + r,
-      y: headLineY() + (Math.random() - 0.5) * H * 0.12,
+      y: H * 0.2 + Math.random() * H * 0.06, // 從高處進場
       vx: fromLeft ? speed : -speed,
-      vy: -120, // 略往上拋，自然下墜形成弧線
+      vy: -40, // 微上拋後重力拉下 → 明顯拋物線
       r,
+      baseR: r,
+      scale: 1,
       rot: 0,
       vrot: (fromLeft ? 1 : -1) * 5,
       sq: 0,
@@ -123,8 +127,31 @@ export function createHeaderScreen() {
       squashAngle: 0,
       headed: false,
       scored: false,
+      willScore: false,
+      x0: 0,
+      y0: 0,
+      x1: 0,
+      y1: 0,
       prevY: 0,
     }
+  }
+
+  function headerBall(b) {
+    b.phase = 'out'
+    b.t = 0
+    b.x0 = b.x
+    b.y0 = b.y
+    // 頭在球左/右側 + 頭部水平動量 → 頂出方向偏移
+    const off = (b.x - head.x) * 1.5 + head.vx * 0.15
+    const goalX = clamp(goal.cx + off, goal.cx - goal.halfW * 2.2, goal.cx + goal.halfW * 2.2)
+    b.willScore = Math.abs(goalX - goal.cx) < goal.halfW - b.baseR * FAR_SCALE * 0.5
+    b.x1 = goalX
+    b.y1 = goal.mouthY - goal.h * 0.35 // 飛進球門內
+    b.headed = true
+    b.sqv += 6
+    b.squashAngle = Math.PI / 2
+    state.flash = 0.12
+    sound.kick()
   }
 
   // ---------- 頂球點（頭 / 指標）映射 ----------
@@ -140,13 +167,13 @@ export function createHeaderScreen() {
       head.y = clamp(headLineY() + (tracker.y - H / 2) * HEAD_Y_GAIN, H * 0.32, H * 0.92)
       head.vx = tracker.vx * HEAD_X_GAIN
       head.vy = tracker.vy * HEAD_Y_GAIN
-      head.r = tracker.headR || 56
+      head.r = clamp((tracker.headR || 56) * 0.55, 28, 46) // 控制圈縮小
     } else {
       head.x = tracker.x
       head.y = tracker.y
       head.vx = tracker.vx
       head.vy = tracker.vy
-      head.r = 56
+      head.r = 38
     }
   }
 
@@ -200,67 +227,64 @@ export function createHeaderScreen() {
     }
 
     const b = state.ball
-    b.prevY = b.y
-    b.vy += GRAVITY * dt
-    b.x += b.vx * dt
-    b.y += b.vy * dt
+    b.t += dt
     b.rot += b.vrot * dt
-    b.vrot *= 0.99
-
     b.sqv += (-900 * b.sq - 18 * b.sqv) * dt
     b.sq += b.sqv * dt
     b.sq = clamp(b.sq, -0.18, 0.18)
 
-    // 頂球判定
-    if (head.active && state.contactCd <= 0 && !b.scored) {
-      const d = Math.hypot(b.x - head.x, b.y - head.y)
-      if (d < b.r + head.r) {
-        if (head.vy < -HEAD_UP_THRESH) {
-          // 有效頂球：往上送向球門，頭在球哪一側決定左右
-          const power = clamp(HEADER_BASE + Math.abs(head.vy) * 1.0, HEADER_BASE, HEADER_MAX)
-          b.vy = -power
-          b.vx = (goal.cx - b.x) * 1.9 + (b.x - head.x) * 1.6 + head.vx * 0.2
-          b.vx = clamp(b.vx, -760, 760)
-          b.vrot = -b.vx / b.r
-          b.sqv += 5.5
-          b.squashAngle = Math.atan2(-b.vy, b.vx)
-          b.headed = true
-          state.contactCd = 0.25
-          state.flash = 0.12
-          sound.kick()
-        } else {
-          // 碰到沒往上頂 → 輕輕彈開，沒力道
-          b.vy = -200
-          b.vx += (b.x - head.x) * 1.0
-          b.sqv += 3
-          b.squashAngle = Math.PI / 2
-          state.contactCd = 0.2
-          sound.bounce()
+    if (b.phase === 'cross') {
+      // 拋物線飛入（滿尺寸）
+      b.vy += GRAVITY * dt
+      b.vrot *= 0.99
+      b.x += b.vx * dt
+      b.y += b.vy * dt
+
+      // 頂球判定
+      if (head.active && state.contactCd <= 0) {
+        const d = Math.hypot(b.x - head.x, b.y - head.y)
+        if (d < b.r + head.r) {
+          if (head.vy < -HEAD_UP_THRESH) {
+            headerBall(b)
+          } else {
+            // 碰到沒往上頂 → 輕彈，無力道
+            b.vy = -260
+            b.vx += (b.x - head.x) * 1.0
+            b.sqv += 3
+            b.squashAngle = Math.PI / 2
+            state.contactCd = 0.2
+            sound.bounce()
+          }
         }
       }
-    }
-
-    // 進球：往上穿過球門口且在門柱間
-    if (!b.scored && b.vy < 0 && b.prevY >= goal.mouthY && b.y < goal.mouthY) {
-      if (Math.abs(b.x - goal.cx) < goal.halfW - b.r * 0.4) {
-        b.scored = true
-        state.score += 1
-        scoreEl.textContent = state.score
-        scoreEl.classList.remove('pop')
-        void scoreEl.offsetWidth
-        scoreEl.classList.add('pop')
-        goal.shake = 0.6
-        showMsg(t('hdGoal'), 'good')
-        sound.swish()
-        sound.point()
-        sound.crowd(1.0, 0.25)
+      // 飛出畫面 → 沒接到
+      if (b.x + b.r < -30 || b.x - b.r > W + 30 || b.y - b.r > H + 30) {
+        if (!b.headed) showMsg(t('hdMiss'), 'bad')
+        state.ball = newBall()
       }
-    }
-
-    // 重生：飛出畫面任一側
-    if (b.x + b.r < -20 || b.x - b.r > W + 20 || b.y + b.r < -20 || b.y - b.r > H + 20) {
-      if (!b.scored && !b.headed) showMsg(t('hdMiss'), 'bad')
-      state.ball = newBall()
+    } else if (b.phase === 'out') {
+      // 頂出 → 縮小飛向遠方球門
+      const p = clamp(b.t / T_OUT, 0, 1)
+      b.scale = 1 + (FAR_SCALE - 1) * p
+      b.x = b.x0 + (b.x1 - b.x0) * p
+      b.y = b.y0 + (b.y1 - b.y0) * p - Math.sin(Math.PI * p) * H * 0.05
+      if (p >= 1) {
+        if (b.willScore) {
+          state.score += 1
+          scoreEl.textContent = state.score
+          scoreEl.classList.remove('pop')
+          void scoreEl.offsetWidth
+          scoreEl.classList.add('pop')
+          goal.shake = 0.6
+          showMsg(t('hdGoal'), 'good')
+          sound.swish()
+          sound.point()
+          sound.crowd(1.0, 0.25)
+        } else {
+          showMsg(t('hdMiss'), 'bad')
+        }
+        state.ball = newBall()
+      }
     }
   }
 
@@ -297,15 +321,18 @@ export function createHeaderScreen() {
 
     const b = state.ball
     if (b) {
-      // 球影（落在頂球線上）
-      ctx.fillStyle = 'rgba(0,0,0,0.16)'
-      ctx.beginPath()
-      ctx.ellipse(b.x, headLineY() + 6, b.r * 0.9, b.r * 0.28, 0, 0, Math.PI * 2)
-      ctx.fill()
+      const r = b.baseR * b.scale
+      // 球影（傳中階段落在頂球線上）
+      if (b.phase === 'cross') {
+        ctx.fillStyle = 'rgba(0,0,0,0.16)'
+        ctx.beginPath()
+        ctx.ellipse(b.x, headLineY() + 6, r * 0.9, r * 0.28, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
       drawBall(ctx, {
         cx: b.x,
         cy: b.y,
-        r: b.r,
+        r,
         rotation: b.rot,
         sx: 1 - b.sq,
         sy: 1 + b.sq * 0.5,
