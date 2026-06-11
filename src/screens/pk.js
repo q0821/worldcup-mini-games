@@ -53,22 +53,22 @@ const DIFFS = {
     meterHz: 0.7,
     keeperSide: 0.48, // 電腦門將判對方向機率
     keeperReach: 0.85,
-    missChance: 0.16, // 電腦直接射偏機率
-    cpuSpeed: [15, 21],
-    cpuBanana: 0.22,
-    cornerProb: 0.5,
-    circleR: 0.115, // 紅圈半徑（佔畫面寬比例）
+    missChance: 0.18, // 電腦直接射偏機率
+    cpuSpeed: [11, 15], // 球速放慢 → 反應窗較長、好擋
+    cpuBanana: 0.18,
+    cornerProb: 0.45,
+    circleR: 0.14, // 紅圈半徑（佔畫面寬比例）放大
   },
   hard: {
     sweet: [0.64, 0.76], // 完美力道區（窄）
     meterHz: 1.1,
     keeperSide: 0.7,
     keeperReach: 1.0,
-    missChance: 0.07,
-    cpuSpeed: [18, 25],
-    cpuBanana: 0.4,
-    cornerProb: 0.85,
-    circleR: 0.085,
+    missChance: 0.08,
+    cpuSpeed: [15, 20],
+    cpuBanana: 0.38,
+    cornerProb: 0.82,
+    circleR: 0.1,
   },
 }
 
@@ -393,7 +393,8 @@ export function createPkScreen() {
       ty = Math.max(0.2, ty * (0.5 + 0.5 * w))
       tx += gauss() * 0.3
     }
-    const aLat = curveV * MAX_LAT // 曲度 → 連續側向加速度（左彎 / 直 / 右彎）
+    // 曲度 → 側向加速度。負號讓「箭頭往右彎」對應「球軌跡往右凸」（物理上球先反向起步再彎回）
+    const aLat = -curveV * MAX_LAT
     state.shotQuality = quality
 
     fireShot({ tx, ty, speed, aLat, dir: 1 })
@@ -455,7 +456,7 @@ export function createPkScreen() {
     // 紅圈隨球接近縮小（緊迫感），點擊判定用同一半徑
     const base = W * state.diff.circleR
     const prog = state.shot ? clamp(state.flyT / state.shot.T, 0, 1) : 0
-    return base * (1.35 - 0.55 * prog)
+    return base * (1.4 - 0.4 * prog)
   }
 
   function keeperTap(sx, sy) {

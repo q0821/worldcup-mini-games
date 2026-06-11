@@ -325,7 +325,9 @@ export function drawGoalAndNet(ctx, cam, net) {
 export function makeRevView(W, H) {
   const c = 2.5
   const eye = 1.65 // 門將視線高度 (m)
-  const Kx = (W * 0.92) / (GOAL.halfW * 2)
+  // 球門螢幕寬度設上限，避免寬螢幕下撐到滿版（像站在門裡）；兩側露出草地
+  const goalW = Math.min(W * 0.86, H * 1.15)
+  const Kx = goalW / (GOAL.halfW * 2)
   const Ky = Kx * 1.35 // 球門螢幕比例約 2.2:1（寬扁、像真球門）
   const baseY = H * 0.6 // 球門線(近) 的螢幕高度
   const horizonY = baseY - eye * Ky
