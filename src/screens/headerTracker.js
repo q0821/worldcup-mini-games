@@ -7,7 +7,7 @@
 // PointerTracker：滑鼠 / 觸控控制頂球點（降級玩法，無需攝影機）。
 
 // MediaPipe 版本固定 pin（不可用 @latest，避免 API 漂移），失敗時呼叫端降級。
-const MP_VER = '0.10.22'
+const MP_VER = '0.10.35'
 const MP_ESM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`
 const MP_WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm`
 const MODEL_URL =
@@ -128,27 +128,41 @@ export class CameraTracker extends BaseTracker {
   }
 
   // 可能拋錯：NotAllowedError（拒絕）/ NotFoundError（無鏡頭）/ 模型載入失敗 / 非安全內容。
+  // 失敗時拋出帶 stage 標記的錯誤，方便呼叫端 / console 判斷是哪一關卡住。
   async start() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('getUserMedia unsupported')
+    // 1) 取得攝影機
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia unsupported (需 HTTPS 或 localhost)')
+      }
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      })
+      this.video.srcObject = this.stream
+      this.video.muted = true
+      this.video.playsInline = true
+      await this.video.play()
+    } catch (e) {
+      e.stage = 'camera'
+      throw e
     }
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false,
-    })
-    this.video.srcObject = this.stream
-    this.video.muted = true
-    this.video.playsInline = true
-    await this.video.play()
 
-    // 延遲載入 MediaPipe（CDN），失敗讓呼叫端降級
-    const { FaceLandmarker, FilesetResolver } = await import(/* @vite-ignore */ MP_ESM)
-    const fileset = await FilesetResolver.forVisionTasks(MP_WASM)
-    this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-    })
+    // 2) 載入 MediaPipe（CDN 延遲載入）
+    try {
+      const mod = await import(/* @vite-ignore */ MP_ESM)
+      const { FaceLandmarker, FilesetResolver } = mod
+      if (!FaceLandmarker || !FilesetResolver) throw new Error('MediaPipe ESM 缺少預期匯出')
+      const fileset = await FilesetResolver.forVisionTasks(MP_WASM)
+      this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+      })
+    } catch (e) {
+      e.stage = 'model'
+      throw e
+    }
     return true
   }
 

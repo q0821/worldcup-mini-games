@@ -23,11 +23,12 @@ export function createHeaderScreen() {
   const el = document.createElement('div')
   el.className = 'screen'
 
-  // 隱藏的 video 作為攝影機來源（不直接顯示，改畫進 canvas 以統一座標）
+  // video 作為攝影機來源（不直接顯示，改畫進 canvas 以統一座標）。
+  // 用「離屏但仍渲染」而非 display:none——後者在部分瀏覽器不會產生影格。
   const video = document.createElement('video')
   video.setAttribute('playsinline', '')
   video.muted = true
-  video.style.display = 'none'
+  video.style.cssText = 'position:absolute;width:2px;height:2px;opacity:0;pointer-events:none;top:0;left:0;z-index:-1'
   el.appendChild(video)
 
   const game = document.createElement('div')
@@ -436,7 +437,6 @@ export function createHeaderScreen() {
     if (tracker) tracker.stop() // 重玩再選攝影機時，釋放上一個 tracker
     tracker = null
     showOverlay(loadingOverlay(t('hdLoading')))
-    video.style.display = ''
     const cam = new CameraTracker(video)
     try {
       await cam.start()
@@ -444,10 +444,11 @@ export function createHeaderScreen() {
       usingCamera = true
       beginGame()
     } catch (err) {
-      // 拒絕授權 / 無鏡頭 / 模型載入失敗 → 降級
+      // 不默默吞掉：印出真正原因（哪一關失敗）方便除錯
+      console.error('[頭鎚射門] 攝影機/模型啟動失敗', err && err.stage, err)
       cam.stop()
-      video.style.display = 'none'
-      showMsg(t('hdDenied'), 'bad')
+      const reason = err && err.stage === 'model' ? '頭部追蹤模型載入失敗' : '無法取得攝影機'
+      showMsg(`${reason}，改用手指 / 滑鼠玩`, 'bad')
       startPointer()
     }
   }
