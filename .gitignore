@@ -5,3 +5,6 @@ dist
 # 測試 / 工具殘留
 .playwright-mcp/
 *.log
+
+# Claude Code 工作暫存
+.claude/
