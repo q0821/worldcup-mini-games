@@ -319,14 +319,15 @@ export function drawGoalAndNet(ctx, cam, net) {
 // ---------- 門將視角（反向：站在門裡看射手） ----------
 // 眼高模型：視線高度 eye（站姿門將），與眼同高的點落在地平線，
 // 近物向下散開、來球「迎面放大」才符合第一人稱直覺。
-// 橫向 / 縱向各自縮放（球門 3:1 太扁，縱向放大才好點選）。
+// 橫向 / 縱向縮放：Ky 只比 Kx 略大，讓球門維持接近真實的寬扁比例（約 2.2:1），
+// 不再縱向硬撐成方籠子（先前佔高 44% → 看起來又高又方）。
 // z 自球門線 (0) 朝罰球點 (11)。世界 +x 在畫面左側（鏡像）。
 export function makeRevView(W, H) {
   const c = 2.5
   const eye = 1.65 // 門將視線高度 (m)
-  const Kx = (W * 0.94) / (GOAL.halfW * 2)
-  const Ky = (H * 0.44) / GOAL.height // 球門佔畫面高 44%
-  const baseY = H * 0.7 // 球門線地面
+  const Kx = (W * 0.92) / (GOAL.halfW * 2)
+  const Ky = Kx * 1.35 // 球門螢幕比例約 2.2:1（寬扁、像真球門）
+  const baseY = H * 0.6 // 球門線(近) 的螢幕高度
   const horizonY = baseY - eye * Ky
   const goalTop = horizonY - (GOAL.height - eye) * Ky
   const s = (z) => c / (c + z)
